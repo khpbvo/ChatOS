@@ -1,0 +1,31 @@
+[models]
+default = "sonnet"
+heavy = "opus"
+
+[agent.orchestrator]
+model = "sonnet"
+description = "Main routing agent — interprets user intent and delegates to specialists"
+
+[agent.security]
+model = "opus"
+description = "Security analysis, threat assessment, pf rules review"
+
+[agent.filesystem]
+model = "sonnet"
+description = "File and directory operations"
+
+[agent.networking]
+model = "opus"
+description = "Network configuration, troubleshooting, traffic analysis"
+
+[agent.packages]
+model = "sonnet"
+description = "Software installation and management via pkg_add"
+
+[agent.services]
+model = "sonnet"
+description = "Service management via rcctl"
+
+[agent.diagnostics]
+model = "sonnet"
+description = "System health, resource monitoring, log analysis"
