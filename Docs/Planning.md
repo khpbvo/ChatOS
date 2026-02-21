@@ -47,8 +47,10 @@ All steps complete. 184 tests passing.
 - [ ] **Step 9: Event stream protocol** — Replace raw text yielding in orchestrator with
   structured events: ThinkingEvent, ToolCallEvent, ToolOutputEvent (25-line cap),
   ToolCollapseEvent, TextEvent, MediaEvent. Both CLI and Web UI consume these.
-- [ ] **Step 10: MCP server config** — Parse `/etc/chatos/mcp.toml`, wire pre-configured
-  MCP servers (web search, web fetch, IMAP/SMTP, file server) into the SDK client.
+- [ ] **Step 10: MCP server config** — Parse `/etc/chatos/mcp.toml`, wire the email
+  MCP server (`mcp-email-server`) into the SDK client for the mail subagent.
+  Web search and web fetch use built-in tools (WebSearch, WebFetch), not MCP servers.
+  Custom in-process MCP servers (chatos-files, chatos-media) are deferred to Phase 3.
 - [ ] **Step 11: Test subagent routing + event stream** — Verify orchestrator delegates
   to correct subagent and emits correct event types.
 
@@ -137,11 +139,16 @@ This enables the web UI's collapsing tool output UX: previous tool outputs
 collapse to just name+args when a new tool is called, AI text stays on screen,
 tool output is capped at 25 lines.
 
-### AD-12: Pre-configured MCP server set
-ChatOS ships with a curated, admin-configured set of MCP servers (web search,
-web fetch, IMAP/SMTP, file server). End users cannot add MCP servers — only
-the admin (via `/etc/chatos/mcp.toml`) controls available capabilities. This
-limits the attack surface while still providing rich functionality.
+### AD-12: Built-in tools first, MCP only when necessary
+The Claude Code CLI provides built-in tools (Bash, Read, Write, Edit, MultiEdit,
+Glob, Grep, WebSearch, WebFetch) that require no configuration. ChatOS uses
+these as the primary capability set. MCP servers are only added for capabilities
+not covered by built-in tools — currently only email (`mcp-email-server` from
+PyPI for IMAP/SMTP). Custom in-process SDK MCP servers (chatos-files,
+chatos-media) will be added in Phase 3 for web UI rendering needs. End users
+cannot add MCP servers — only the admin (via `/etc/chatos/mcp.toml`) controls
+available capabilities. Prefer Python (PyPI) MCP servers over npm-based ones
+to avoid a Node.js dependency on OpenBSD.
 
 ### AD-13: No offline mode
 ChatOS requires an internet connection to function (Claude API access). No
@@ -152,6 +159,13 @@ connectivity (fiber + 5G fallback).
 The initial release is single-user (one person per machine, kiosk-style).
 The architecture should not preclude adding multi-user support (accounts,
 separate home dirs, session isolation) in a future phase.
+
+### AD-15: Tool scoping per subagent
+Each subagent receives only the built-in tools it needs via
+`ClaudeAgentOptions.allowed_tools`. WebSearch and WebFetch are scoped to the
+web subagent only (not available globally). The rules engine covers Bash
+commands and Write/Edit paths. Web tools (WebSearch, WebFetch) are unfiltered
+for now — domain blocking may be added in a future phase if needed.
 
 ## Known Limitations
 

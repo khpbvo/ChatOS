@@ -253,18 +253,96 @@ claude auth status --json
 `AssistantMessage.error` can be `"authentication_failed"` if the CLI cannot
 authenticate. The orchestrator should handle this gracefully.
 
-## MCP Servers (Pre-configured Set)
+## Built-in Tools (from Claude Code CLI)
 
-ChatOS ships with a curated set of MCP servers that provide the agent's
-extended capabilities. End users cannot add their own — the admin configures
-them in `/etc/chatos/mcp.toml`.
+The Claude Agent SDK spawns the Claude Code CLI, which provides these tools
+natively — no MCP servers needed. Tools are scoped per subagent via the
+`allowed_tools` parameter on `ClaudeAgentOptions`.
 
-| MCP Server | Purpose | Credentials |
-|------------|---------|-------------|
-| **Web search** | Internet search for the web agent | None (uses Claude's built-in) |
-| **Web fetch** | Fetch/render URLs, link previews | None |
-| **IMAP/SMTP** | Email read/send for the mail agent | IMAP/SMTP server, user, password |
-| **File server** | Serve local files to the browser UI | None (localhost only) |
+### Core Tools (available to all agents)
+
+| Tool | Description |
+|------|-------------|
+| **Bash** | Execute shell commands. Subject to rules.toml permission checks. |
+| **Read** | Read files (text, images, PDFs, notebooks). |
+| **Write** | Create/overwrite files. Subject to forbidden_write_paths. |
+| **Edit** | Find-and-replace in files. Subject to forbidden_write_paths. |
+| **MultiEdit** | Batch find-and-replace (multiple edits, one file, atomic). |
+| **Glob** | Fast file pattern matching (e.g. `**/*.py`). |
+| **Grep** | Content search via ripgrep (regex, file type filtering). |
+
+### Web Tools (scoped to web subagent only)
+
+| Tool | Description |
+|------|-------------|
+| **WebSearch** | Web search — returns results with links. No API key needed. |
+| **WebFetch** | Fetch URL, convert HTML to markdown. 15-min cache. |
+
+### Other Available Tools
+
+| Tool | Description | Notes |
+|------|-------------|-------|
+| **LSP** | Language Server Protocol (go-to-definition, references, hover) | Requires LSP server config |
+| **NotebookEdit** | Edit Jupyter notebook cells | If needed for data workflows |
+| **Task** | Spawn a sub-agent for complex tasks | Used by orchestrator for subagent delegation |
+
+### Tool Scoping per Subagent
+
+Each subagent receives only the tools it needs via `ClaudeAgentOptions.allowed_tools`:
+
+```python
+TOOL_SETS = {
+    "system":  ["Bash", "Read", "Glob", "Grep"],
+    "files":   ["Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep"],
+    "web":     ["Bash", "Read", "WebSearch", "WebFetch"],
+    "media":   ["Bash", "Read", "Glob"],            # + custom MCP tools (Phase 3)
+    "mail":    ["Read"],                             # + mcp__email__* tools
+}
+```
+
+## MCP Servers
+
+ChatOS uses MCP servers **only** for capabilities not covered by built-in tools.
+End users cannot add MCP servers — the admin configures them in
+`/etc/chatos/mcp.toml`.
+
+### External MCP Servers (subprocess, stdio transport)
+
+| MCP Server | PyPI Package | Agent | Purpose |
+|------------|-------------|-------|---------|
+| **email** | `mcp-email-server` | mail | IMAP read + SMTP send. Credentials from mcp.toml. |
+
+### Custom SDK MCP Servers (in-process, Phase 3)
+
+| Server | Agent | Purpose |
+|--------|-------|---------|
+| **chatos-files** | files | Directory trees, file previews for web UI |
+| **chatos-media** | media | Media metadata, base64 encoding for inline rendering |
+
+### Wiring MCP Servers into the SDK
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "email": {
+            "command": "python",
+            "args": ["-m", "mcp_email_server", "stdio"],
+            "env": {
+                "MCP_EMAIL_SERVER_EMAIL_ADDRESS": creds["username"],
+                "MCP_EMAIL_SERVER_PASSWORD": creds["password"],
+                "MCP_EMAIL_SERVER_IMAP_HOST": creds["imap_server"],
+                "MCP_EMAIL_SERVER_SMTP_HOST": creds["smtp_server"],
+            },
+        },
+    },
+    allowed_tools=["Read", "mcp__email__*"],
+)
+```
+
+MCP tools follow the naming convention `mcp__<server-name>__<tool-name>`.
+Use wildcards (`mcp__email__*`) in `allowed_tools` to allow all tools from a server.
 
 ### Credential Storage
 
@@ -275,7 +353,7 @@ MCP server credentials live in `/etc/chatos/mcp.toml`:
 
 ```toml
 # /etc/chatos/mcp.toml — example
-[mail]
+[email]
 imap_server = "imap.example.com"
 imap_port = 993
 smtp_server = "smtp.example.com"
@@ -287,15 +365,16 @@ password = "app-specific-password"
 ## Subagents
 
 Subagents are specialist agents that the orchestrator delegates to. Each has a
-focused system prompt and capability set. Defined in `.claude/agents/`.
+focused system prompt, scoped tool set, and optional MCP servers. Defined in
+`.claude/agents/`.
 
-| Agent | Role | Key Capabilities |
-|-------|------|------------------|
-| **system** | Machine health + maintenance | Disk space, updates, services, network status, performance |
-| **files** | File management | Browse, create, organize, search, upload/download |
-| **web** | Web browsing + search | Fetch URLs, summarize pages, signal UI to open iframe |
-| **media** | Images, video, audio | Render images inline, video previews with links, audio playback |
-| **mail** | Email | Read inbox, compose, send, search (via IMAP/SMTP MCP) |
+| Agent | Role | Built-in Tools | MCP Servers |
+|-------|------|---------------|-------------|
+| **system** | Machine health + maintenance | Bash, Read, Glob, Grep | — |
+| **files** | File management | Bash, Read, Write, Edit, MultiEdit, Glob, Grep | chatos-files (Phase 3) |
+| **web** | Web browsing + search | Bash, Read, WebSearch, WebFetch | — |
+| **media** | Images, video, audio | Bash, Read, Glob | chatos-media (Phase 3) |
+| **mail** | Email | Read | email (mcp-email-server) |
 
 ## Web UI Architecture
 
