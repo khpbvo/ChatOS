@@ -1,46 +1,10 @@
 """Tests for the ChatOS CLI test harness."""
 
-import os
 from pathlib import Path
 
 import pytest
 
-from src.cli import load_env_file, resolve_rules_path, parse_args
-
-
-# -- Environment loading tests --
-
-
-class TestLoadEnvFile:
-    def test_loads_key_value_pairs(self, tmp_path: Path) -> None:
-        env_file = tmp_path / "env"
-        env_file.write_text("TEST_CLI_KEY=test_value\n")
-
-        os.environ.pop("TEST_CLI_KEY", None)
-        load_env_file(env_file)
-        assert os.environ["TEST_CLI_KEY"] == "test_value"
-        os.environ.pop("TEST_CLI_KEY", None)
-
-    def test_skips_comments_and_blanks(self, tmp_path: Path) -> None:
-        env_file = tmp_path / "env"
-        env_file.write_text("# comment\n\nTEST_CLI_KEY2=val2\n")
-
-        os.environ.pop("TEST_CLI_KEY2", None)
-        load_env_file(env_file)
-        assert os.environ["TEST_CLI_KEY2"] == "val2"
-        os.environ.pop("TEST_CLI_KEY2", None)
-
-    def test_does_not_override_existing(self, tmp_path: Path) -> None:
-        env_file = tmp_path / "env"
-        env_file.write_text("TEST_CLI_KEY3=new_value\n")
-
-        os.environ["TEST_CLI_KEY3"] = "original"
-        load_env_file(env_file)
-        assert os.environ["TEST_CLI_KEY3"] == "original"
-        os.environ.pop("TEST_CLI_KEY3", None)
-
-    def test_missing_file_is_noop(self, tmp_path: Path) -> None:
-        load_env_file(tmp_path / "nonexistent")  # should not raise
+from src.cli import resolve_rules_path, parse_args
 
 
 # -- Rules path resolution tests --

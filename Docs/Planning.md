@@ -28,7 +28,7 @@ All steps complete. 189 tests passing.
 - [x] **Step 4: CLI test harness** — stdin/stdout REPL for terminal testing
   - Commit: `c89cc2e` — "Add CLI test harness for interactive agent testing"
   - Files: `src/cli.py`, `src/__main__.py`, `tests/test_cli.py`
-  - 9 unit tests
+  - 5 unit tests
 
 - [x] **Step 5: Test suite** — Integration tests and exhaustive production rules coverage
   - Commit: `f40a521` — "Add integration tests and exhaustive production rules coverage"
@@ -80,6 +80,13 @@ the SDK's `permissionDecision` values: `allow`/`deny`/`ask`.
 Audit entries are written as JSON Lines to `audit-YYYY-MM-DD.jsonl` files.
 File I/O uses `asyncio.to_thread` to avoid blocking the event loop. Each write
 opens/closes the file to ensure entries are flushed immediately.
+
+### AD-7: Claude account auth over API keys
+The SDK spawns the Claude Code CLI as a subprocess. Authentication is handled
+entirely by the CLI, not the SDK. We use `claude auth login` (interactive) or
+`claude setup-token` (headless/kiosk) instead of ANTHROPIC_API_KEY. The _chatos
+user authenticates once during initial setup via `doas -u _chatos claude setup-token`.
+No env file or API key management is needed.
 
 ### AD-6: tomllib over tomli
 Python 3.12+ includes `tomllib` in the standard library. We use that instead of

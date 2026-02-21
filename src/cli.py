@@ -5,13 +5,13 @@ A simple stdin/stdout REPL for testing the agent from the terminal.
 Usage:
     python -m src.cli [--rules PATH] [--log-dir PATH]
 
-Environment:
-    ANTHROPIC_API_KEY  — Required. Can also be loaded from /etc/chatos/env.
+Authentication:
+    Uses Claude account login (`claude auth login`) or `claude setup-token`.
+    No API key required — the SDK delegates auth to the Claude Code CLI.
 """
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -22,26 +22,11 @@ from .rules_engine import RulesEngine, DEFAULT_RULES_PATH
 # Development fallback: use project-local rules if system rules don't exist
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEV_RULES_PATH = PROJECT_ROOT / "etc" / "chatos" / "rules.toml"
-ENV_FILE = Path("/etc/chatos/env")
 
 BANNER = """\
 ChatOS v0.1.0 — AI-driven system administration for OpenBSD
 Type your message, or "exit" to quit. Ctrl+C to interrupt.
 """
-
-
-def load_env_file(path: Path) -> None:
-    """Source key=value pairs from a file into os.environ."""
-    if not path.is_file():
-        return
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                key, _, value = line.partition("=")
-                os.environ.setdefault(key.strip(), value.strip())
 
 
 def resolve_rules_path(explicit: str | None) -> Path:
@@ -122,17 +107,6 @@ async def repl(orchestrator: Orchestrator) -> None:
 
 def main() -> None:
     args = parse_args()
-
-    # Load API key from env file if present
-    load_env_file(ENV_FILE)
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print(
-            "Error: ANTHROPIC_API_KEY not set. "
-            "Export it or add it to /etc/chatos/env.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
     rules_path = resolve_rules_path(args.rules)
     print(f"Loading rules from: {rules_path}", file=sys.stderr)

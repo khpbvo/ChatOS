@@ -25,8 +25,7 @@ happens through natural language conversation with an AI agent backed by Claude
 # Run tests (always do this before committing)
 .venv/bin/python -m pytest tests/ -v
 
-# Run the CLI test harness (needs ANTHROPIC_API_KEY)
-export ANTHROPIC_API_KEY=sk-...
+# Run the CLI test harness (requires `claude auth login` or ANTHROPIC_API_KEY)
 .venv/bin/python -m src --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
 
 # CLI flags: --rules PATH, --log-dir PATH, --model sonnet, --cwd PATH
@@ -49,8 +48,8 @@ export ANTHROPIC_API_KEY=sk-...
 ├── tests/
 │   ├── test_rules_engine.py        # 48 tests — pattern matching, TOML loading
 │   ├── test_audit.py               # 14 tests — JSONL writing, date files
-│   ├── test_orchestrator.py        # 24 tests — hooks, decision mapping, options
-│   ├── test_cli.py                 # 9 tests — env loading, arg parsing
+│   ├── test_orchestrator.py        # 23 tests — hooks, decision mapping, options
+│   ├── test_cli.py                 # 5 tests — rules resolution, arg parsing
 │   └── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
@@ -71,7 +70,7 @@ export ANTHROPIC_API_KEY=sk-...
 
 ```
 /etc/chatos/                        # Config (root-owned, 640 for rules.toml)
-├── rules.toml, agents.toml, env, kiosk.conf
+├── rules.toml, agents.toml, kiosk.conf
 
 /usr/local/share/chatos/            # Application (owned by _chatos)
 ├── venv/, src/, ui/, .claude/
@@ -207,6 +206,44 @@ async for msg in client.receive_response():
 await client.disconnect()
 ```
 
+## Authentication
+
+The SDK spawns the Claude Code CLI as a subprocess. Auth is handled by the CLI,
+not by the SDK itself. **No API key is needed** — we use Claude account login.
+
+### How It Works
+
+1. The CLI stores OAuth session tokens locally after `claude auth login`.
+2. The SDK subprocess inherits those tokens — no env vars required.
+3. `ClaudeAgentOptions.env` can still pass env vars if needed (e.g. for overrides).
+
+### Auth Methods (priority order)
+
+| Method | Command | Use Case |
+|--------|---------|----------|
+| **Claude account (OAuth)** | `claude auth login` | Interactive dev/admin |
+| **Long-lived token** | `claude setup-token` | Headless/kiosk (production) |
+| **SSO** | `claude auth login --sso` | Enterprise/org accounts |
+
+### Production Setup (_chatos user)
+
+The `_chatos` user has `/sbin/nologin` — authenticate during initial setup:
+```bash
+doas -u _chatos claude setup-token   # stores persistent token for headless use
+```
+
+### Checking Auth Status
+
+```bash
+claude auth status --json
+# Returns: authMethod, apiProvider, email, subscriptionType, etc.
+```
+
+### SDK Error Handling
+
+`AssistantMessage.error` can be `"authentication_failed"` if the CLI cannot
+authenticate. The orchestrator should handle this gracefully.
+
 ## Permission System (rules.toml)
 
 Three tiers: **safe** (allow immediately) → **confirm** (ask user) → **forbidden** (deny always).
@@ -250,7 +287,7 @@ Model map is in `src/orchestrator.py:MODEL_MAP`.
 - **async/await** — the entire stack is async
 - **Tests** — every module gets a test file. Use pytest + pytest-asyncio. `asyncio_mode = "auto"` in pyproject.toml.
 - **No hardcoded paths** — use constants or config, make paths configurable
-- **No hardcoded secrets** — API keys from /etc/chatos/env only
+- **No hardcoded secrets** — auth via `claude auth login` (account) or `claude setup-token` (headless)
 - **Line length** — 100 chars (ruff config in pyproject.toml)
 
 ## OpenBSD Notes
