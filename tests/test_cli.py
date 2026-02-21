@@ -90,9 +90,9 @@ class TestParseArgs:
     def test_custom_args(self, monkeypatch) -> None:
         monkeypatch.setattr(
             "sys.argv",
-            ["cli", "--rules", "/tmp/rules.toml", "--model", "opus", "--log-dir", "/tmp/logs"],
+            ["cli", "--rules", "/tmp/rules.toml", "--model", "sonnet", "--log-dir", "/tmp/logs"],
         )
         args = parse_args()
         assert args.rules == "/tmp/rules.toml"
-        assert args.model == "opus"
+        assert args.model == "sonnet"
         assert args.log_dir == "/tmp/logs"

@@ -260,19 +260,12 @@ class TestBuildOptions:
         options = orchestrator.build_options()
         assert options.model == MODEL_MAP["sonnet"]
 
-    def test_custom_model(
-        self, rules_engine: RulesEngine, audit_logger: AuditLogger
-    ) -> None:
-        orch = Orchestrator(rules_engine, audit_logger, model="opus")
-        options = orch.build_options()
-        assert options.model == MODEL_MAP["opus"]
-
     def test_raw_model_id(
         self, rules_engine: RulesEngine, audit_logger: AuditLogger
     ) -> None:
-        orch = Orchestrator(rules_engine, audit_logger, model="claude-haiku-4-5-20251001")
+        orch = Orchestrator(rules_engine, audit_logger, model="claude-sonnet-4-6")
         options = orch.build_options()
-        assert options.model == "claude-haiku-4-5-20251001"
+        assert options.model == "claude-sonnet-4-6"
 
     def test_allowed_tools(self, orchestrator: Orchestrator) -> None:
         options = orchestrator.build_options()

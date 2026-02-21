@@ -55,8 +55,7 @@ and wait for their approval.
 """
 
 MODEL_MAP: dict[str, str] = {
-    "sonnet": "claude-sonnet-4-5-20250929",
-    "opus": "claude-opus-4-6",
+    "sonnet": "claude-sonnet-4-6",
 }
 
 ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]

@@ -1,13 +1,12 @@
 [models]
 default = "sonnet"
-heavy = "opus"
 
 [agent.orchestrator]
 model = "sonnet"
 description = "Main routing agent — interprets user intent and delegates to specialists"
 
 [agent.security]
-model = "opus"
+model = "sonnet"
 description = "Security analysis, threat assessment, pf rules review"
 
 [agent.filesystem]
@@ -15,7 +14,7 @@ model = "sonnet"
 description = "File and directory operations"
 
 [agent.networking]
-model = "opus"
+model = "sonnet"
 description = "Network configuration, troubleshooting, traffic analysis"
 
 [agent.packages]

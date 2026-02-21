@@ -29,7 +29,7 @@ happens through natural language conversation with an AI agent backed by Claude
 export ANTHROPIC_API_KEY=sk-...
 .venv/bin/python -m src --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
 
-# CLI flags: --rules PATH, --log-dir PATH, --model sonnet|opus, --cwd PATH
+# CLI flags: --rules PATH, --log-dir PATH, --model sonnet, --cwd PATH
 ```
 
 ## Current File Layout
@@ -226,11 +226,11 @@ Plus `forbidden_write_paths` for Write/Edit tool calls.
 
 ## Claude Models
 
+All agents use a single model:
+
 | Use | Model ID | Alias |
 |-----|----------|-------|
-| Orchestrator | claude-sonnet-4-5-20250929 | sonnet |
-| Security/Networking | claude-opus-4-6 | opus |
-| Simple subagents | claude-haiku-4-5-20251001 | haiku |
+| All agents | claude-sonnet-4-6 | sonnet |
 
 Model map is in `src/orchestrator.py:MODEL_MAP`.
 
