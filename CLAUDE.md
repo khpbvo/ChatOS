@@ -2,220 +2,264 @@
 
 This file is the canonical reference for Claude Code working on this project.
 Read this ENTIRELY before making any changes.
+See `Docs/Planning.md` for build phases, milestones, and architecture decisions.
 
 ## What Is ChatOS?
 
-ChatOS is an AI-driven operating system interface for OpenBSD. Instead of a traditional shell or desktop, the user boots into a kiosk web browser showing a chat interface. All system administration happens through natural language conversation with an AI agent backed by Claude.
-
-The user says "install nginx and configure a reverse proxy to port 3000" and the system does it — with proper permission checks, confirmation prompts for dangerous operations, and audit logging.
+ChatOS is an AI-driven operating system interface for OpenBSD. The user boots
+into a kiosk web browser showing a chat interface. All system administration
+happens through natural language conversation with an AI agent backed by Claude
+— with permission checks, confirmation prompts, and audit logging.
 
 ## Core Principles
 
-1. **Security first, always.** OpenBSD was chosen for a reason. Every component runs with minimum privileges. pledge() and unveil() are the outer security ring. Agent SDK hooks are the inner ring.
-2. **The AI never touches the system directly without permission checks.** Every tool call passes through PreToolUse hooks that enforce rules.toml.
-3. **The rules file is sacred.** Only root can modify /etc/chatos/rules.toml. The agent user (_chatos) can read it but never write to it.
-4. **Separation of concerns.** The UI user (_chatos_ui) serves the web interface. The agent user (_chatos) runs the Claude Agent SDK. They communicate via Unix domain socket or WebSocket.
-5. **Audit everything.** Every operation, whether allowed or denied, gets logged to /var/chatos/logs/.
+1. **Security first, always.** pledge() and unveil() are the outer ring. Agent SDK hooks are the inner ring.
+2. **Every tool call passes through PreToolUse hooks** that enforce rules.toml.
+3. **The rules file is sacred.** Only root can modify /etc/chatos/rules.toml.
+4. **Separation of concerns.** _chatos_ui serves the web UI. _chatos runs the agent. They communicate via WebSocket.
+5. **Audit everything.** Every operation gets logged to /var/chatos/logs/.
 
-## Target Environment
+## Development Quick Start
 
-- **OS:** OpenBSD (current release, amd64)
-- **Python:** 3.12.x (system package)
-- **Node.js:** OpenBSD package (required for Claude Code CLI via npm)
-- **Hardware:** Development on VMware Fusion VM (2 CPU, 4GB RAM, M1 host). Production target is bare metal.
-- **Display:** xenodm + Chromium in kiosk mode for the chat UI
-- **Network:** Bridged networking, outbound HTTPS to Claude API
+```bash
+# Run tests (always do this before committing)
+.venv/bin/python -m pytest tests/ -v
 
-## Architecture
+# Run the CLI test harness (needs ANTHROPIC_API_KEY)
+export ANTHROPIC_API_KEY=sk-...
+.venv/bin/python -m src --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Chromium Kiosk (--kiosk mode)       [_chatos_ui]        │
-│  Serves: /usr/local/share/chatos/ui/                     │
-│  Connects to: ws://localhost:8765                         │
-├──────────────────────────────────────────────────────────┤
-│  WebSocket Server (Python)           [_chatos_ui]        │
-│  Bridges browser <-> agent via UDS                        │
-├──────────────────────────────────────────────────────────┤
-│  Agent Orchestrator (Claude Agent SDK) [_chatos]         │
-│  - PreToolUse hooks enforce rules.toml                   │
-│  - PostToolUse hooks log all operations                  │
-│  - Subagents for specialist domains                      │
-│  - Custom MCP tools for ChatOS-specific operations       │
-├──────────────────────────────────────────────────────────┤
-│  OpenBSD Kernel                                          │
-│  pledge() / unveil() / W^X / ASLR / arc4random          │
-└──────────────────────────────────────────────────────────┘
+# CLI flags: --rules PATH, --log-dir PATH, --model sonnet|opus, --cwd PATH
 ```
 
-## Agent SDK Integration
+## Current File Layout
 
-We use the **Claude Agent SDK (Python)** — `claude-agent-sdk` package.
-Installed in venv at: `/usr/local/share/chatos/venv/`
+```
+/usr/local/share/chatos/project/   # Project root (git repo)
+├── src/
+│   ├── __init__.py                 # Package init (v0.1.0)
+│   ├── __main__.py                 # `python -m src` entrypoint
+│   ├── models.py                   # Pydantic models (Action, Decision, AuditEntry, RulesConfig, ...)
+│   ├── rules_engine.py             # TOML parser + pattern matcher (RulesEngine class)
+│   ├── audit.py                    # Async JSONL audit logger (AuditLogger class)
+│   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
+│   ├── cli.py                      # CLI REPL test harness
+│   └── tools/                      # Custom MCP tools (placeholder)
+│       └── __init__.py
+├── tests/
+│   ├── test_rules_engine.py        # 48 tests — pattern matching, TOML loading
+│   ├── test_audit.py               # 14 tests — JSONL writing, date files
+│   ├── test_orchestrator.py        # 24 tests — hooks, decision mapping, options
+│   ├── test_cli.py                 # 9 tests — env loading, arg parsing
+│   └── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
+├── etc/chatos/
+│   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
+│   └── agents.toml                 # Model assignments per agent
+├── Docs/
+│   └── Planning.md                 # Build plan, milestones, architecture decisions
+├── .claude/                        # Agent SDK config (placeholders)
+│   ├── agents/                     # Subagent definitions (Phase 2)
+│   ├── skills/
+│   └── commands/
+├── ui/                             # Kiosk web interface (Phase 3)
+├── .venv/                          # Python 3.12 virtual environment
+├── pyproject.toml                  # Project config and dependencies
+└── CLAUDE.md                       # This file
+```
 
-### Key SDK Features We Use
+## Target Layout (Production)
 
-- **PreToolUse hooks:** Intercept every tool call (Bash, Write, Edit, etc.) BEFORE execution. Our hook reads rules.toml and allows/denies/requires-confirmation.
-- **PostToolUse hooks:** Log every operation outcome for audit trail.
-- **Subagents:** Specialist agents defined as markdown files in `.claude/agents/`. Each has restricted tool access and focused system prompts.
-- **Custom tools via MCP:** In-process MCP servers for ChatOS-specific operations (e.g., user confirmation flow, session management).
-- **Permission modes:** Main orchestrator runs in `default` mode. Individual subagents get restricted tool lists.
-- **ClaudeSDKClient:** For bidirectional, interactive conversations (not one-shot queries).
+```
+/etc/chatos/                        # Config (root-owned, 640 for rules.toml)
+├── rules.toml, agents.toml, env, kiosk.conf
 
-### SDK Usage Pattern
+/usr/local/share/chatos/            # Application (owned by _chatos)
+├── venv/, src/, ui/, .claude/
+
+/var/chatos/                        # Runtime data
+├── logs/                           # Audit JSONL files (audit-YYYY-MM-DD.jsonl)
+├── run/                            # Unix sockets
+└── sessions/                       # Session state
+```
+
+## Claude Agent SDK — Actual API Reference
+
+The SDK is `claude-agent-sdk` (PyPI), installed in `.venv/`.
+Version 0.1.39 as of Phase 1 completion.
+
+### How to Discover SDK Patterns
+
+The SDK types are defined in `claude_agent_sdk.types`. To explore:
 
 ```python
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
+# List all exports
+.venv/bin/python -c "import claude_agent_sdk; print(dir(claude_agent_sdk))"
 
-options = ClaudeAgentOptions(
-    allowed_tools=["Bash", "Read", "Write", "Edit", "Glob", "Grep"],
-    hooks={
-        "PreToolUse": [
-            HookMatcher(matcher="Bash", hooks=[check_bash_rules]),
-            HookMatcher(matcher="Write|Edit", hooks=[check_write_rules]),
-        ],
-        "PostToolUse": [
-            HookMatcher(matcher=None, hooks=[audit_log]),  # log everything
-        ],
+# Inspect a specific type (source code)
+.venv/bin/python -c "import inspect; from claude_agent_sdk.types import SyncHookJSONOutput; print(inspect.getsource(SyncHookJSONOutput))"
+
+# Check a class signature
+.venv/bin/python -c "import inspect; from claude_agent_sdk import ClaudeAgentOptions; print(inspect.signature(ClaudeAgentOptions.__init__))"
+```
+
+### Key Types and Import Paths
+
+```python
+# Top-level imports (these work)
+from claude_agent_sdk import (
+    ClaudeAgentOptions,     # Dataclass — client configuration
+    ClaudeSDKClient,        # Main client — connect(), query(), receive_response()
+    HookMatcher,            # Routes hooks by tool name pattern (matcher=None matches all)
+    AssistantMessage,       # Agent response with content blocks
+    ResultMessage,          # Turn-complete signal with cost/usage info
+    TextBlock,              # Text content within AssistantMessage
+    PreToolUseHookInput,    # TypedDict — hook receives this before tool runs
+    PostToolUseHookInput,   # TypedDict — hook receives this after tool runs
+    HookContext,            # TypedDict — {"signal": Any | None}
+)
+
+# NOT in top-level — must import from .types
+from claude_agent_sdk.types import SyncHookJSONOutput  # TypedDict — hook return value
+```
+
+### Hook Callback Signature
+
+```python
+async def my_hook(
+    hook_input: PreToolUseHookInput,  # or PostToolUseHookInput
+    matcher: str | None,              # the matcher pattern that triggered this hook
+    ctx: HookContext,                 # {"signal": None} (reserved for future use)
+) -> SyncHookJSONOutput:
+    ...
+```
+
+### PreToolUseHookInput Fields (TypedDict)
+
+```python
+{
+    "session_id": str,
+    "transcript_path": str,
+    "cwd": str,
+    "permission_mode": str,         # NotRequired
+    "hook_event_name": "PreToolUse",
+    "tool_name": str,               # "Bash", "Write", "Edit", "Read", etc.
+    "tool_input": dict[str, Any],   # {"command": "ls"} or {"file_path": "/tmp/x"}
+    "tool_use_id": str,
+}
+```
+
+### PostToolUseHookInput Fields (TypedDict)
+
+Same as PreToolUse plus:
+```python
+{
+    "hook_event_name": "PostToolUse",
+    "tool_response": Any,           # The tool's output
+}
+```
+
+### SyncHookJSONOutput — What Hooks Return
+
+```python
+# Allow a tool call:
+SyncHookJSONOutput(
+    hookSpecificOutput={
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",         # "allow" | "deny" | "ask"
+        "permissionDecisionReason": "...",
     },
-    system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
-    cwd="/usr/local/share/chatos",
+)
+
+# Deny a tool call:
+SyncHookJSONOutput(
+    decision="block",
+    reason="...",
+    hookSpecificOutput={
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "...",
+    },
+)
+
+# Request user confirmation:
+SyncHookJSONOutput(
+    hookSpecificOutput={
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "ask",
+        "permissionDecisionReason": "...",
+    },
 )
 ```
 
-## Models
+### ClaudeSDKClient Lifecycle
 
-- **Orchestrator:** claude-sonnet-4-5-20250929 (Sonnet 4.5) — fast, cost-effective for routing and standard operations
-- **Security/Networking subagents:** claude-opus-4-6 (Opus 4.6) — complex reasoning for security decisions and network analysis
-- **Simple subagents (fs listing, diagnostics):** Sonnet 4.5 or Haiku
+```python
+client = ClaudeSDKClient(options)
+await client.connect(prompt="optional initial message")
+client.query("user message")
+async for msg in client.receive_response():
+    if isinstance(msg, AssistantMessage):
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                print(block.text)
+    elif isinstance(msg, ResultMessage):
+        break
+await client.disconnect()
+```
 
 ## Permission System (rules.toml)
 
-The rules file at `/etc/chatos/rules.toml` defines three tiers:
+Three tiers: **safe** (allow immediately) → **confirm** (ask user) → **forbidden** (deny always).
+Plus `forbidden_write_paths` for Write/Edit tool calls.
 
-1. **safe_patterns** — Execute immediately, no confirmation needed (read-only operations, system status)
-2. **confirm_patterns** — Require explicit user confirmation via the chat UI before execution
-3. **forbidden_patterns** — NEVER execute, regardless of user request. Hook returns deny immediately.
+**Evaluation order** (whitelist approach — unmatched = denied):
+1. Forbidden patterns (substring match in full command) → deny
+2. Safe patterns (prefix match with word boundary) → allow
+3. Confirm patterns (prefix match with word boundary) → confirm
+4. Default → deny
 
-Additionally:
-- **forbidden_write_paths** — Paths the agent can never write to (/etc/master.passwd, /etc/doas.conf, /bsd, etc.)
-- **resources** — Limits on concurrent operations, session timeouts
+**Pattern matching details:**
+- Forbidden: `pattern in command` — catches embedded patterns in pipes, chains, subshells
+- Safe/Confirm: `_prefix_match(command, pattern)` — strips trailing space from pattern,
+  checks `command == stripped` or `command.startswith(stripped + " ")`.
+  Patterns with trailing space (like `"cat "`) also match via `startswith(pattern)`.
 
-The rules engine is implemented as a PreToolUse hook. It:
-1. Extracts the command/path from the tool input
-2. Checks against forbidden_patterns first (deny)
-3. Checks against forbidden_write_paths for write operations (deny)
-4. Checks against safe_patterns (allow)
-5. Checks against confirm_patterns (request user confirmation)
-6. Default: deny with explanation (whitelist approach)
+## Claude Models
+
+| Use | Model ID | Alias |
+|-----|----------|-------|
+| Orchestrator | claude-sonnet-4-5-20250929 | sonnet |
+| Security/Networking | claude-opus-4-6 | opus |
+| Simple subagents | claude-haiku-4-5-20251001 | haiku |
+
+Model map is in `src/orchestrator.py:MODEL_MAP`.
 
 ## System Users
 
-| User | Purpose | Home | Shell |
-|------|---------|------|-------|
-| agent01 | Human admin account | /home/agent01 | /bin/ksh |
-| _chatos | Agent process, runs SDK | /home/chatos | /sbin/nologin |
-| _chatos_ui | Kiosk browser + web server | /home/chatos-ui | /sbin/nologin |
-
-## Directory Layout
-
-```
-/etc/chatos/                    # Config (root-owned)
-├── rules.toml                  # Permission rules (root:_chatos 640)
-├── agents.toml                 # Model and agent config
-├── env                         # API key (_chatos:_chatos 400)
-└── kiosk.conf                  # Browser/UI config
-
-/usr/local/share/chatos/        # Project root
-├── venv/                       # Python virtual environment
-├── src/                        # Application source
-│   ├── orchestrator.py          # Main agent loop + hooks
-│   ├── rules_engine.py          # TOML rules parser + matcher
-│   ├── ws_server.py             # WebSocket bridge
-│   ├── audit.py                 # Audit logging
-│   ├── models.py                # Pydantic models
-│   └── tools/                   # Custom MCP tools
-│       ├── confirm.py           # User confirmation flow
-│       └── session.py           # Session management
-├── ui/                          # Kiosk web interface
-│   ├── index.html
-│   ├── chat.js
-│   └── style.css
-├── .claude/                     # Agent SDK config
-│   ├── agents/                  # Subagent definitions
-│   │   ├── filesystem.md
-│   │   ├── packages.md
-│   │   ├── services.md
-│   │   ├── networking.md
-│   │   └── diagnostics.md
-│   ├── skills/                  # Agent skills
-│   └── commands/                # Slash commands
-└── CLAUDE.md                    # This file (project memory)
-
-/var/chatos/                     # Runtime data
-├── logs/                        # Audit logs
-├── run/                         # Unix sockets
-└── sessions/                    # Session state
-```
-
-## Build Order
-
-This is the implementation sequence. Each step should be a working, testable increment:
-
-### Phase 1: Core Engine (CLI-testable, no UI)
-1. **rules_engine.py** — Parse rules.toml, match commands against patterns, return allow/deny/confirm decisions
-2. **audit.py** — Structured JSON logging to /var/chatos/logs/
-3. **orchestrator.py** — ClaudeSDKClient with PreToolUse/PostToolUse hooks wired to rules engine and audit
-4. **CLI test harness** — Simple stdin/stdout loop to test the agent from the terminal
-5. **Test suite** — Unit tests for rules engine, integration tests for hook behavior
-
-### Phase 2: Subagents
-6. **Subagent markdown files** — filesystem.md, packages.md, diagnostics.md, services.md, networking.md
-7. **agents.toml parser** — Load model config per agent
-8. **Test subagent routing** — Verify orchestrator delegates correctly
-
-### Phase 3: Web UI + Kiosk
-9. **ws_server.py** — WebSocket server bridging browser to agent
-10. **Chat UI** — Minimal HTML/JS/CSS chat interface
-11. **Kiosk setup** — xenodm + chromium --kiosk auto-launch
-12. **rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
-
-### Phase 4: Hardening
-13. **pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
-14. **Apply pledge/unveil** — Lock down each process
-15. **Watchdog logic** — Monitor for unexpected behavior
-16. **Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
+| User | Purpose | Shell |
+|------|---------|-------|
+| agent01 | Human admin | /bin/ksh |
+| _chatos | Agent process (SDK) | /sbin/nologin |
+| _chatos_ui | Kiosk browser + web server | /sbin/nologin |
 
 ## Coding Standards
 
-- **Python 3.12+** — Use modern typing, dataclasses, match statements where appropriate
-- **PEP 8** — Strict compliance
-- **Type hints everywhere** — All function signatures, return types
-- **Google-style docstrings** — Concise but complete
-- **Pydantic models** — For all structured data (rules, messages, audit entries)
-- **Context managers** — For all resources (files, sockets, sessions)
+- **Python 3.12+** — match statements, modern typing (`str | None` not `Optional[str]`)
+- **Type hints everywhere** — all function signatures and return types
+- **Pydantic models** — for all structured data
+- **async/await** — the entire stack is async
+- **Tests** — every module gets a test file. Use pytest + pytest-asyncio. `asyncio_mode = "auto"` in pyproject.toml.
+- **No hardcoded paths** — use constants or config, make paths configurable
 - **No hardcoded secrets** — API keys from /etc/chatos/env only
-- **No hardcoded paths** — Use constants or config, make paths configurable
-- **async/await** — The SDK is async, so the entire stack should be async
-- **Tests** — Every module gets a test file. Use pytest + pytest-asyncio.
+- **Line length** — 100 chars (ruff config in pyproject.toml)
 
-## OpenBSD-Specific Notes
+## OpenBSD Notes
 
-- Shell is ksh, not bash. Shell scripts must be POSIX-compatible or explicitly use /bin/ksh.
-- Package manager is pkg_add / pkg_delete / pkg_info (NOT apt, yum, pacman).
-- Service management is rcctl (NOT systemd, NOT systemctl).
-- Firewall is pf (packet filter), config at /etc/pf.conf.
-- No /proc filesystem by default. System info via sysctl.
-- The `doas` command replaces `sudo`. Config at /etc/doas.conf.
-- Native binaries compiled for Linux will NOT work (different ELF ABI). Always use OpenBSD packages or compile from source/ports.
-- Rust is available via pkg_add for packages that need compilation (e.g., pydantic-core).
-
-## Important Reminders for Claude Code
-
-- You are running ON the OpenBSD box. Use OpenBSD commands, not Linux equivalents.
-- The project venv is at /usr/local/share/chatos/venv/ — activate it before running Python.
-- The API key is in /etc/chatos/env — source it before running the agent.
-- Always test changes before committing. Run the test suite.
-- When creating rc.d scripts, follow OpenBSD rc.d(8) conventions exactly.
-- The _chatos user has /sbin/nologin — you cannot su to it. Use doas -u _chatos to run commands as that user.
-- Keep security in mind with every change. If in doubt, deny by default.
+- Shell is **ksh**, not bash. Scripts must be POSIX-compatible.
+- Package manager: **pkg_add / pkg_delete / pkg_info** (not apt/yum).
+- Service manager: **rcctl** (not systemd).
+- Firewall: **pf** (packet filter), config at /etc/pf.conf.
+- No /proc. System info via **sysctl**.
+- **doas** replaces sudo. Config at /etc/doas.conf.
+- Linux binaries won't work (different ELF ABI). Use OpenBSD packages.
+- _chatos has /sbin/nologin — use `doas -u _chatos` to run as that user.
