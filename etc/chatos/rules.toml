@@ -1,0 +1,47 @@
+[meta]
+version = "0.1.0"
+hostname = "bsd-agent"
+
+[permissions]
+# Operations that execute without confirmation
+safe_patterns = [
+    "cat ", "ls ", "find ", "grep ", "wc ", "head ", "tail ",
+    "df ", "uptime", "uname ", "whoami", "date", "cal",
+    "pkg_info", "sysctl ", "ifconfig ", "netstat ",
+    "ps aux", "top -b", "vmstat", "iostat",
+]
+
+# Operations that require user confirmation via UI
+confirm_patterns = [
+    "pkg_add ", "pkg_delete ",
+    "rcctl ", "doas ",
+    "mv ", "cp ", "chmod ", "chown ",
+    "mkdir ", "rmdir ",
+    "tee ", "dd ",
+]
+
+# Operations that are NEVER allowed
+forbidden_patterns = [
+    "rm -rf /",
+    "rm -rf /*",
+    "dd if=/dev/zero of=/dev/",
+    "chmod -R 777 /",
+    "halt", "reboot", "shutdown",
+    "passwd", "vipw", "usermod", "useradd", "userdel",
+    "pfctl -d",
+    ">/etc/", ">> /etc/",
+]
+
+# Paths the agent can never write to
+forbidden_write_paths = [
+    "/etc/master.passwd",
+    "/etc/doas.conf",
+    "/etc/chatos/rules.toml",
+    "/etc/pf.conf",
+    "/bsd",
+    "/bsd.rd",
+]
+
+[resources]
+max_concurrent_ops = 5
+session_timeout_minutes = 30
