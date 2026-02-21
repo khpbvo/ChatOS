@@ -5,26 +5,22 @@ default = "sonnet"
 model = "sonnet"
 description = "Main routing agent — interprets user intent and delegates to specialists"
 
-[agent.security]
+[agent.system]
 model = "sonnet"
-description = "Security analysis, threat assessment, pf rules review"
+description = "Machine health, maintenance, updates, services, network status, performance"
 
-[agent.filesystem]
+[agent.files]
 model = "sonnet"
-description = "File and directory operations"
+description = "File management — browse, create, organize, search, upload/download"
 
-[agent.networking]
+[agent.web]
 model = "sonnet"
-description = "Network configuration, troubleshooting, traffic analysis"
+description = "Web browsing, search, URL fetching, page summaries, iframe handoff"
 
-[agent.packages]
+[agent.media]
 model = "sonnet"
-description = "Software installation and management via pkg_add"
+description = "Images, video previews, audio playback, media file handling"
 
-[agent.services]
+[agent.mail]
 model = "sonnet"
-description = "Service management via rcctl"
-
-[agent.diagnostics]
-model = "sonnet"
-description = "System health, resource monitoring, log analysis"
+description = "Email — read inbox, compose, send, search (via IMAP/SMTP MCP)"

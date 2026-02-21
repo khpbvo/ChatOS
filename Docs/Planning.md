@@ -35,25 +35,44 @@ All steps complete. 189 tests passing.
   - Files: `tests/test_integration.py`
   - 94 integration tests (all prod patterns, security edge cases, pipeline tests)
 
-### Phase 2: Subagents — NOT STARTED
+### Phase 2: Subagents + Event Stream + System Prompt — NOT STARTED
 
-- [ ] **Step 6: Subagent markdown files** — filesystem.md, packages.md, diagnostics.md, services.md, networking.md in `.claude/agents/`
-- [ ] **Step 7: agents.toml parser** — Load model config per agent from `etc/chatos/agents.toml`
-- [ ] **Step 8: Test subagent routing** — Verify orchestrator delegates to correct subagent
+- [ ] **Step 6: System prompt rewrite** — Reframe from sysadmin to end-user OS companion.
+  Agent must be self-aware of its capabilities (files, web, media, mail, system).
+  Informative but concise output style. Aware it runs on OpenBSD but the user doesn't
+  need to know internals.
+- [ ] **Step 7: Subagent markdown files** — system.md, files.md, web.md, media.md, mail.md
+  in `.claude/agents/`. Each defines a specialist agent with scoped system prompt.
+- [ ] **Step 8: agents.toml parser** — Load model config per agent from `etc/chatos/agents.toml`
+- [ ] **Step 9: Event stream protocol** — Replace raw text yielding in orchestrator with
+  structured events: ThinkingEvent, ToolCallEvent, ToolOutputEvent (25-line cap),
+  ToolCollapseEvent, TextEvent, MediaEvent. Both CLI and Web UI consume these.
+- [ ] **Step 10: MCP server config** — Parse `/etc/chatos/mcp.toml`, wire pre-configured
+  MCP servers (web search, web fetch, IMAP/SMTP, file server) into the SDK client.
+- [ ] **Step 11: Test subagent routing + event stream** — Verify orchestrator delegates
+  to correct subagent and emits correct event types.
 
 ### Phase 3: Web UI + Kiosk — NOT STARTED
 
-- [ ] **Step 9: ws_server.py** — WebSocket server bridging browser ↔ agent
-- [ ] **Step 10: Chat UI** — Minimal HTML/JS/CSS chat interface in `ui/`
-- [ ] **Step 11: Kiosk setup** — xenodm + chromium --kiosk auto-launch
-- [ ] **Step 12: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
+- [ ] **Step 12: ws_server.py** — WebSocket server bridging browser ↔ agent. Sends
+  structured events (JSON) per the event stream protocol.
+- [ ] **Step 13: Chat UI** — HTML/JS/CSS chat interface in `ui/` with:
+  - Streaming tool output (25-line preview, collapsing on next tool call)
+  - "Thinking..." animated spinner
+  - AI text responses (persist on screen)
+  - Media rendering (inline images, video previews with links)
+  - CSP-sandboxed iframe for on-demand web browsing
+- [ ] **Step 14: File server** — HTTP endpoint in `_chatos_ui` that serves local files
+  (images, documents) to the browser. Restricted to user home dir, session-gated.
+- [ ] **Step 15: Kiosk setup** — xenodm + chromium --kiosk auto-launch
+- [ ] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
 
 ### Phase 4: Hardening — NOT STARTED
 
-- [ ] **Step 13: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
-- [ ] **Step 14: Apply pledge/unveil** — Lock down each process
-- [ ] **Step 15: Watchdog logic** — Monitor for unexpected behavior
-- [ ] **Step 16: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
+- [ ] **Step 17: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
+- [ ] **Step 18: Apply pledge/unveil** — Lock down each process
+- [ ] **Step 19: Watchdog logic** — Monitor for unexpected behavior
+- [ ] **Step 20: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
 
 ## Architecture Decisions
 
@@ -87,6 +106,47 @@ entirely by the CLI, not the SDK. We use `claude auth login` (interactive) or
 `claude setup-token` (headless/kiosk) instead of ANTHROPIC_API_KEY. The _chatos
 user authenticates once during initial setup via `doas -u _chatos claude setup-token`.
 No env file or API key management is needed.
+
+### AD-8: End-user OS framing, not sysadmin tool
+ChatOS is an end-user operating system experience, not a sysadmin tool. The web
+UI provides file management, web browsing, media viewing, email, and system
+maintenance — all through natural language. The CLI remains the admin/dev
+interface. The system prompt, subagents, and UX all reflect this distinction.
+
+### AD-9: MCP credential storage in /etc/chatos/mcp.toml
+MCP server credentials (IMAP passwords, etc.) are stored in `/etc/chatos/mcp.toml`,
+owned by `root:_chatos` with mode `640`. This follows the standard OpenBSD pattern
+for service credentials (same as smtpd, httpd, sshd). Root writes the file during
+setup, `_chatos` reads it at runtime. No env files, no vaults.
+
+### AD-10: CSP headers for iframe sandboxing
+When the web UI opens a URL in an embedded iframe, CSP (Content-Security-Policy)
+headers restrict what the iframe can load and execute. This prevents XSS, phishing,
+and kiosk escape attempts. Default mode is chat-based URL summaries; iframe is
+on-demand only.
+
+### AD-11: Structured event stream protocol
+The orchestrator emits structured events (ThinkingEvent, ToolCallEvent,
+ToolOutputEvent, ToolCollapseEvent, TextEvent, MediaEvent) instead of raw text.
+This enables the web UI's collapsing tool output UX: previous tool outputs
+collapse to just name+args when a new tool is called, AI text stays on screen,
+tool output is capped at 25 lines.
+
+### AD-12: Pre-configured MCP server set
+ChatOS ships with a curated, admin-configured set of MCP servers (web search,
+web fetch, IMAP/SMTP, file server). End users cannot add MCP servers — only
+the admin (via `/etc/chatos/mcp.toml`) controls available capabilities. This
+limits the attack surface while still providing rich functionality.
+
+### AD-13: No offline mode
+ChatOS requires an internet connection to function (Claude API access). No
+degraded offline mode is planned. The target deployment has redundant
+connectivity (fiber + 5G fallback).
+
+### AD-14: Single-user now, multi-user later
+The initial release is single-user (one person per machine, kiosk-style).
+The architecture should not preclude adding multi-user support (accounts,
+separate home dirs, session isolation) in a future phase.
 
 ### AD-6: tomllib over tomli
 Python 3.12+ includes `tomllib` in the standard library. We use that instead of

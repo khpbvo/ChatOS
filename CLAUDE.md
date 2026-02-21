@@ -6,10 +6,15 @@ See `Docs/Planning.md` for build phases, milestones, and architecture decisions.
 
 ## What Is ChatOS?
 
-ChatOS is an AI-driven operating system interface for OpenBSD. The user boots
-into a kiosk web browser showing a chat interface. All system administration
-happens through natural language conversation with an AI agent backed by Claude
-— with permission checks, confirmation prompts, and audit logging.
+ChatOS is an AI-driven operating system experience for OpenBSD, delivered
+through a kiosk web browser. The user interacts with their machine entirely
+through a chat interface — browsing the web, managing files, viewing media,
+sending email, installing apps, and performing system maintenance — all via
+natural language conversation with an AI agent backed by Claude.
+
+Two interfaces exist:
+- **Web UI** (kiosk browser): The end-user experience. Rich, visual, streaming.
+- **CLI** (terminal): Developer/admin interface for configuration and debugging.
 
 ## Core Principles
 
@@ -53,11 +58,12 @@ happens through natural language conversation with an AI agent backed by Claude
 │   └── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
-│   └── agents.toml                 # Model assignments per agent
+│   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)
+│   └── mcp.toml                    # MCP server configs + credentials (Phase 2)
 ├── Docs/
 │   └── Planning.md                 # Build plan, milestones, architecture decisions
 ├── .claude/                        # Agent SDK config (placeholders)
-│   ├── agents/                     # Subagent definitions (Phase 2)
+│   ├── agents/                     # Subagent definitions: system, files, web, media, mail
 │   ├── skills/
 │   └── commands/
 ├── ui/                             # Kiosk web interface (Phase 3)
@@ -69,8 +75,11 @@ happens through natural language conversation with an AI agent backed by Claude
 ## Target Layout (Production)
 
 ```
-/etc/chatos/                        # Config (root-owned, 640 for rules.toml)
-├── rules.toml, agents.toml, kiosk.conf
+/etc/chatos/                        # Config (root-owned)
+├── rules.toml                      # Permission patterns (root:_chatos 640)
+├── agents.toml                     # Agent/model config
+├── mcp.toml                        # MCP server configs + credentials (root:_chatos 640)
+├── kiosk.conf                      # Kiosk browser settings
 
 /usr/local/share/chatos/            # Application (owned by _chatos)
 ├── venv/, src/, ui/, .claude/
@@ -243,6 +252,82 @@ claude auth status --json
 
 `AssistantMessage.error` can be `"authentication_failed"` if the CLI cannot
 authenticate. The orchestrator should handle this gracefully.
+
+## MCP Servers (Pre-configured Set)
+
+ChatOS ships with a curated set of MCP servers that provide the agent's
+extended capabilities. End users cannot add their own — the admin configures
+them in `/etc/chatos/mcp.toml`.
+
+| MCP Server | Purpose | Credentials |
+|------------|---------|-------------|
+| **Web search** | Internet search for the web agent | None (uses Claude's built-in) |
+| **Web fetch** | Fetch/render URLs, link previews | None |
+| **IMAP/SMTP** | Email read/send for the mail agent | IMAP/SMTP server, user, password |
+| **File server** | Serve local files to the browser UI | None (localhost only) |
+
+### Credential Storage
+
+MCP server credentials live in `/etc/chatos/mcp.toml`:
+- Owned by `root:_chatos`, mode `640` (root writes, `_chatos` reads)
+- This is the standard OpenBSD pattern (same as smtpd, httpd, sshd)
+- No env files, no vaults — just file permissions
+
+```toml
+# /etc/chatos/mcp.toml — example
+[mail]
+imap_server = "imap.example.com"
+imap_port = 993
+smtp_server = "smtp.example.com"
+smtp_port = 587
+username = "user@example.com"
+password = "app-specific-password"
+```
+
+## Subagents
+
+Subagents are specialist agents that the orchestrator delegates to. Each has a
+focused system prompt and capability set. Defined in `.claude/agents/`.
+
+| Agent | Role | Key Capabilities |
+|-------|------|------------------|
+| **system** | Machine health + maintenance | Disk space, updates, services, network status, performance |
+| **files** | File management | Browse, create, organize, search, upload/download |
+| **web** | Web browsing + search | Fetch URLs, summarize pages, signal UI to open iframe |
+| **media** | Images, video, audio | Render images inline, video previews with links, audio playback |
+| **mail** | Email | Read inbox, compose, send, search (via IMAP/SMTP MCP) |
+
+## Web UI Architecture
+
+### Event Stream Protocol
+
+The orchestrator yields structured events (not raw text) over WebSocket:
+
+```
+ThinkingEvent          → animated spinner in UI
+ToolCallEvent          → tool_name + args displayed
+ToolOutputEvent        → 25-line preview of output, streaming
+ToolCollapseEvent      → previous tool output collapses to name+args only
+TextEvent              → AI response text (stays on screen)
+MediaEvent             → image/video/link rendered inline
+```
+
+**UX flow:** User input → Thinking... (animated) → tool_name: args + 25-line
+preview → if another tool is called, previous collapses → AI text output stays.
+
+### Iframe Browsing
+
+When the user asks to "open" a URL, the UI can open it in an embedded iframe
+alongside the chat. Security:
+- **CSP headers** restrict what the iframe can load and execute
+- Default is chat-based summaries; iframe is on-demand ("open this in browser")
+
+### File Serving
+
+`_chatos_ui` serves local files (images, documents) to the browser via HTTP.
+- Only serves from the user's home directory
+- Requires the active session token
+- Localhost-only binding
 
 ## Permission System (rules.toml)
 
