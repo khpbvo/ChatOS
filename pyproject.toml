@@ -11,7 +11,6 @@ dependencies = [
     "claude-agent-sdk",
     "websockets>=13.0",
     "aiohttp>=3.9",
-    "tomli>=2.0",
     "pydantic>=2.0",
 ]
 

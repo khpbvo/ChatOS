@@ -348,7 +348,9 @@ Plus `forbidden_write_paths` for Write/Edit tool calls.
 
 ## Claude Models
 
-All agents use a single model:
+All agents (orchestrator and subagents) use a single model. Per-agent model
+config lives in `etc/chatos/agents.toml` but currently every agent is set to
+the same value. This allows future per-agent overrides without code changes.
 
 | Use | Model ID | Alias |
 |-----|----------|-------|

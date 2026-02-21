@@ -7,7 +7,7 @@ architecture decisions, and known issues.
 
 ### Phase 1: Core Engine (CLI-testable, no UI) — COMPLETE
 
-All steps complete. 189 tests passing.
+All steps complete. 184 tests passing.
 
 - [x] **Step 1: rules_engine.py** — Parse rules.toml, match commands against patterns
   - Commit: `7624cea` — "Add rules engine with TOML parser and permission matching"
@@ -23,7 +23,7 @@ All steps complete. 189 tests passing.
 - [x] **Step 3: orchestrator.py** — ClaudeSDKClient with PreToolUse/PostToolUse hooks
   - Commit: `3bb1c29` — "Add orchestrator with SDK hooks wired to rules engine and audit"
   - Files: `src/orchestrator.py`, `tests/test_orchestrator.py`
-  - 24 unit tests
+  - 23 unit tests
 
 - [x] **Step 4: CLI test harness** — stdin/stdout REPL for terminal testing
   - Commit: `c89cc2e` — "Add CLI test harness for interactive agent testing"
@@ -100,6 +100,11 @@ Audit entries are written as JSON Lines to `audit-YYYY-MM-DD.jsonl` files.
 File I/O uses `asyncio.to_thread` to avoid blocking the event loop. Each write
 opens/closes the file to ensure entries are flushed immediately.
 
+### AD-6: tomllib over tomli
+Python 3.12+ includes `tomllib` in the standard library. We use that instead of
+the `tomli` backport package. No backport dependency is needed since we target
+Python 3.12+ exclusively.
+
 ### AD-7: Claude account auth over API keys
 The SDK spawns the Claude Code CLI as a subprocess. Authentication is handled
 entirely by the CLI, not the SDK. We use `claude auth login` (interactive) or
@@ -147,11 +152,6 @@ connectivity (fiber + 5G fallback).
 The initial release is single-user (one person per machine, kiosk-style).
 The architecture should not preclude adding multi-user support (accounts,
 separate home dirs, session isolation) in a future phase.
-
-### AD-6: tomllib over tomli
-Python 3.12+ includes `tomllib` in the standard library. We use that instead of
-the `tomli` backport package, even though `tomli` is listed in pyproject.toml
-dependencies (for potential <3.11 compat).
 
 ## Known Limitations
 
