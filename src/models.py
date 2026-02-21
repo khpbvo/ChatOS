@@ -1,6 +1,7 @@
 """Pydantic models for ChatOS structured data."""
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -50,3 +51,17 @@ class RulesConfig(BaseModel):
     meta: RulesMeta
     permissions: Permissions = Field(default_factory=Permissions)
     resources: Resources = Field(default_factory=Resources)
+
+
+class AuditEntry(BaseModel):
+    """A single audit log entry."""
+
+    timestamp: str
+    session_id: str = ""
+    tool_name: str
+    tool_input: dict[str, Any] = Field(default_factory=dict)
+    decision: Action
+    reason: str
+    matched_pattern: str | None = None
+    outcome: str | None = None
+    error: str | None = None
