@@ -48,6 +48,7 @@ Two interfaces exist:
 │   ├── audit.py                    # Async JSONL audit logger (AuditLogger class)
 │   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
 │   ├── cli.py                      # CLI REPL test harness
+│   ├── ws_server.py                # WebSocket server for kiosk browser
 │   └── tools/                      # Custom MCP tools (placeholder)
 │       └── __init__.py
 ├── tests/
@@ -55,7 +56,8 @@ Two interfaces exist:
 │   ├── test_audit.py               # 14 tests — JSONL writing, date files
 │   ├── test_orchestrator.py        # 23 tests — hooks, decision mapping, options
 │   ├── test_cli.py                 # 5 tests — rules resolution, arg parsing
-│   └── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
+│   ├── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
+│   └── test_ws_server.py           # 31 tests — WebSocket server, protocol, single-conn guard
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)

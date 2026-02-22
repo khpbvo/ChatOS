@@ -143,6 +143,27 @@ class MediaEvent(Event):
     alt: str = ""
 
 
+class ClientMessage(BaseModel):
+    """Incoming message from the browser client."""
+
+    type: Literal["message"]
+    text: str
+
+
+class ReadyEvent(Event):
+    """Sent on connection to signal the UI can start sending."""
+
+    type: Literal["ready"] = "ready"
+
+
+class ErrorEvent(Event):
+    """Server-side error reported to the client."""
+
+    type: Literal["error"] = "error"
+    error: str
+    code: str  # "auth_failed" | "sdk_error" | "invalid_message" | "busy"
+
+
 # -- MCP configuration models --
 
 

@@ -35,29 +35,31 @@ All steps complete. 184 tests passing.
   - Files: `tests/test_integration.py`
   - 94 integration tests (all prod patterns, security edge cases, pipeline tests)
 
-### Phase 2: Subagents + Event Stream + System Prompt — NOT STARTED
+### Phase 2: Subagents + Event Stream + System Prompt — COMPLETE
 
-- [ ] **Step 6: System prompt rewrite** — Reframe from sysadmin to end-user OS companion.
+- [x] **Step 6: System prompt rewrite** — Reframe from sysadmin to end-user OS companion.
   Agent must be self-aware of its capabilities (files, web, media, mail, system).
   Informative but concise output style. Aware it runs on OpenBSD but the user doesn't
   need to know internals.
-- [ ] **Step 7: Subagent markdown files** — system.md, files.md, web.md, media.md, mail.md
+- [x] **Step 7: Subagent markdown files** — system.md, files.md, web.md, media.md, mail.md
   in `.claude/agents/`. Each defines a specialist agent with scoped system prompt.
-- [ ] **Step 8: agents.toml parser** — Load model config per agent from `etc/chatos/agents.toml`
-- [ ] **Step 9: Event stream protocol** — Replace raw text yielding in orchestrator with
+- [x] **Step 8: agents.toml parser** — Load model config per agent from `etc/chatos/agents.toml`
+- [x] **Step 9: Event stream protocol** — Replace raw text yielding in orchestrator with
   structured events: ThinkingEvent, ToolCallEvent, ToolOutputEvent (25-line cap),
   ToolCollapseEvent, TextEvent, MediaEvent. Both CLI and Web UI consume these.
-- [ ] **Step 10: MCP server config** — Parse `/etc/chatos/mcp.toml`, wire the email
+- [x] **Step 10: MCP server config** — Parse `/etc/chatos/mcp.toml`, wire the email
   MCP server (`mcp-email-server`) into the SDK client for the mail subagent.
   Web search and web fetch use built-in tools (WebSearch, WebFetch), not MCP servers.
   Custom in-process MCP servers (chatos-files, chatos-media) are deferred to Phase 3.
-- [ ] **Step 11: Test subagent routing + event stream** — Verify orchestrator delegates
+- [x] **Step 11: Test subagent routing + event stream** — Verify orchestrator delegates
   to correct subagent and emits correct event types.
 
-### Phase 3: Web UI + Kiosk — NOT STARTED
+### Phase 3: Web UI + Kiosk — IN PROGRESS
 
-- [ ] **Step 12: ws_server.py** — WebSocket server bridging browser ↔ agent. Sends
+- [x] **Step 12: ws_server.py** — WebSocket server bridging browser ↔ agent. Sends
   structured events (JSON) per the event stream protocol.
+  - Files: `src/ws_server.py`, `src/models.py` (3 new models), `src/__main__.py`, `tests/test_ws_server.py`
+  - 31 tests (lifecycle, protocol, errors, single-connection guard, new models)
 - [ ] **Step 13: Chat UI** — HTML/JS/CSS chat interface in `ui/` with:
   - Streaming tool output (25-line preview, collapsing on next tool call)
   - "Thinking..." animated spinner
@@ -166,6 +168,16 @@ Each subagent receives only the built-in tools it needs via
 web subagent only (not available globally). The rules engine covers Bash
 commands and Write/Edit paths. Web tools (WebSearch, WebFetch) are unfiltered
 for now — domain blocking may be added in a future phase if needed.
+
+### AD-16: Localhost-only WebSocket binding
+The WebSocket server binds to `127.0.0.1` by default, not `0.0.0.0`. This
+ensures the agent is only reachable from the local machine (kiosk browser).
+Remote access requires an explicit `--host` override.
+
+### AD-17: Single-connection guard
+Only one WebSocket client can be connected at a time. A second connection
+receives an `ErrorEvent(code="busy")` and is closed with code 4000. This
+enforces the single-user kiosk model (AD-14) at the transport layer.
 
 ## Known Limitations
 
