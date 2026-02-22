@@ -92,7 +92,7 @@ All steps complete. 184 tests passing.
     `deploy/rc.d/rc.conf.local.example` (new), `tests/test_rc_scripts.py` (new)
   - 457 total tests (45 new in test_rc_scripts)
 
-### Phase 4: Hardening — IN PROGRESS
+### Phase 4: Hardening — COMPLETE
 
 - [x] **Step 17: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
   - Files: `src/sandbox.py` (new), `tests/test_sandbox.py` (new)
@@ -114,7 +114,13 @@ All steps complete. 184 tests passing.
   - Pure synchronous state machine — no I/O, no async
   - Detects: denial cascades, forbidden repeats, error storms, runaway loops, identical call loops
   - Per-query blocking with user-message reset; session counters survive resets
-- [ ] **Step 20: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
+- [x] **Step 20: Installer script** — Idempotent ksh script that transforms a fresh OpenBSD into ChatOS
+  - Files: `deploy/install.sh` (new), `tests/test_installer.py` (new)
+  - 638 total tests (49 new in test_installer)
+  - POSIX ksh, `set -eu`, 17 sections: packages, users, dirs, deploy, venv, UI build,
+    ownership, config preservation, rc.d install, doas, rcctl, post-install summary
+  - Config files never overwritten (preserves admin customizations on upgrade)
+  - rc.d scripts always overwritten (code, not config)
 
 ## Architecture Decisions
 
@@ -324,6 +330,30 @@ further `record_decision` calls to return `blocked=True`. Cleared by
 ### AD-36: Monotonic clock for sliding windows
 Uses `time.monotonic()` (not `time.time()`) — immune to NTP adjustments and
 manual clock changes. Timestamps are pruned lazily via `deque.popleft()`.
+
+### AD-37: Idempotent installer
+Every operation checks state before acting. User exists? Skip. Directory exists?
+Correct ownership. Config already present? Preserve it. Safe to re-run for
+upgrades — application code and rc.d scripts are always updated, config files
+are never overwritten.
+
+### AD-38: POSIX ksh script
+`#!/bin/ksh`, `set -eu`. Matches the rc.d scripts and kiosk launch scripts.
+No bashisms. Syntax-verified via `ksh -n` in the test suite.
+
+### AD-39: Local repo install, not curl|sh
+The script lives in the repo and is run locally after cloning. Computes
+`PROJECT_DIR` from its own location via `dirname "$0"`. No remote fetching
+of the installer itself.
+
+### AD-40: Config file preservation
+Never overwrite existing `/etc/chatos/*` files. The `install_config` helper
+checks `[ -f "$_dst" ]` before copying. Preserves admin customizations during
+upgrades. rc.d scripts are always overwritten because they are code, not config.
+
+### AD-41: rcctl for service management
+Uses `rcctl enable` and `rcctl set` instead of manually editing
+`/etc/rc.conf.local`. Standard OpenBSD idiom; naturally idempotent.
 
 ## Known Limitations
 

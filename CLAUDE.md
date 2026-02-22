@@ -81,7 +81,8 @@ cd ui && npm run dev
 │   ├── test_rc_scripts.py         # 45 tests — rc.d structure, pexp patterns, paths, rc.conf
 │   ├── test_sandbox.py            # 52 tests — pledge/unveil bindings, builder, state guards, subprocess
 │   ├── test_sandbox_profiles.py   # 37 tests — sandbox profiles, integration points, subprocess
-│   └── test_watchdog.py           # 43 tests — anomaly detection, sliding windows, resets
+│   ├── test_watchdog.py           # 43 tests — anomaly detection, sliding windows, resets
+│   └── test_installer.py         # 49 tests — installer script structure, constants, idempotency
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)
@@ -92,6 +93,7 @@ cd ui && npm run dev
 │   │   ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
 │   │   ├── xinitrc                 # X session: xset, wait for server, exec Chromium
 │   │   └── reset-console.sh        # Cleanup: restore DRI/console ownership
+│   ├── install.sh                  # Idempotent installer (doas ksh deploy/install.sh)
 │   └── rc.d/                       # OpenBSD service scripts (Step 16)
 │       ├── chatos_agent            # rc.d script: agent WebSocket server
 │       ├── chatos_ui               # rc.d script: kiosk browser
