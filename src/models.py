@@ -183,3 +183,38 @@ class McpConfig(BaseModel):
     """MCP server configuration from mcp.toml."""
 
     email: EmailMcpConfig | None = None
+
+
+# -- Kiosk configuration models --
+
+
+class ChromiumConfig(BaseModel):
+    """Chromium browser settings from kiosk.conf."""
+
+    extra_flags: str = ""
+    user_data_dir: str = "/var/chatos/chromium"
+    disable_gpu: bool = False
+
+
+class KioskConfig(BaseModel):
+    """Kiosk session settings from kiosk.conf."""
+
+    url: str = "http://127.0.0.1:8400"
+    display: str = "0"
+    vt: str = "vt05"
+    server_timeout: int = 30
+    poll_interval: int = 1
+
+
+class KioskLoggingConfig(BaseModel):
+    """Kiosk logging settings from kiosk.conf."""
+
+    log_file: str = "/var/chatos/logs/kiosk.log"
+
+
+class FullKioskConfig(BaseModel):
+    """Top-level kiosk configuration from kiosk.conf."""
+
+    kiosk: KioskConfig = Field(default_factory=KioskConfig)
+    chromium: ChromiumConfig = Field(default_factory=ChromiumConfig)
+    logging: KioskLoggingConfig = Field(default_factory=KioskLoggingConfig)

@@ -42,6 +42,9 @@ Two interfaces exist:
 # Run the UI dev server (separate terminal, proxies WS to :8400)
 cd ui && npm run dev
 
+# Export kiosk config as shell variables
+.venv/bin/python -m src.kiosk_config etc/chatos/kiosk.conf
+
 # CLI flags: --rules PATH, --log-dir PATH, --model sonnet, --cwd PATH
 # WS server flags: --serve, --host HOST, --port PORT, --home-dir PATH, --static-dir PATH (plus CLI flags above)
 ```
@@ -58,6 +61,7 @@ cd ui && npm run dev
 │   ├── audit.py                    # Async JSONL audit logger (AuditLogger class)
 │   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
 │   ├── file_server.py              # HTTP file server (local files + static UI)
+│   ├── kiosk_config.py             # Kiosk TOML parser + Chromium flag builder + shell exporter
 │   ├── cli.py                      # CLI REPL test harness
 │   ├── ws_server.py                # WebSocket server + HTTP file server for kiosk browser
 │   └── tools/                      # Custom MCP tools (placeholder)
@@ -69,11 +73,18 @@ cd ui && npm run dev
 │   ├── test_cli.py                 # 5 tests — rules resolution, arg parsing
 │   ├── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
 │   ├── test_ws_server.py           # 34 tests — WebSocket server, protocol, single-conn guard, session token
-│   └── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
+│   ├── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
+│   └── test_kiosk_config.py       # 29 tests — file loading, Chromium flags, shell export, models
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)
-│   └── mcp.toml                    # MCP server configs + credentials (Phase 2)
+│   ├── mcp.toml                    # MCP server configs + credentials (Phase 2)
+│   └── kiosk.conf                  # Kiosk browser settings (URL, display, Chromium flags)
+├── deploy/
+│   └── kiosk/                      # Kiosk launch scripts (Step 15)
+│       ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
+│       ├── xinitrc                 # X session: xset, wait for server, exec Chromium
+│       └── reset-console.sh        # Cleanup: restore DRI/console ownership
 ├── Docs/
 │   └── Planning.md                 # Build plan, milestones, architecture decisions
 ├── .claude/                        # Agent SDK config (placeholders)

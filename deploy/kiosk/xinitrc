@@ -1,0 +1,57 @@
+#!/bin/sh
+# xinitrc — X session script for the ChatOS kiosk.
+# Run by xinit as _chatos_ui. No window manager — Chromium is the session.
+#
+# Flow:
+#   1. Load config from kiosk.conf via Python exporter
+#   2. Redirect output to kiosk log
+#   3. Disable screensaver and power management
+#   4. Set a clean black background
+#   5. Hide cursor (if unclutter is installed)
+#   6. Wait for the ChatOS server to be ready
+#   7. Clean stale Chromium lock files
+#   8. exec Chromium (replaces this shell — exit = X exit)
+
+set -eu
+
+CHATOS_DIR="/usr/local/share/chatos"
+PYTHON="${CHATOS_DIR}/venv/bin/python"
+KIOSK_CONF="/etc/chatos/kiosk.conf"
+
+# Load kiosk config
+eval "$("${PYTHON}" -m src.kiosk_config "${KIOSK_CONF}")"
+
+# Redirect stdout/stderr to log file
+exec >>"${KIOSK_LOG_FILE}" 2>&1
+echo "--- kiosk session start: $(date) ---"
+
+# Disable screensaver and DPMS power management
+xset s off
+xset -dpms
+
+# Clean black background while Chromium loads
+xsetroot -solid black
+
+# Hide cursor after 3 seconds of inactivity (if unclutter is installed)
+if command -v unclutter >/dev/null 2>&1; then
+    unclutter -idle 3 -root &
+fi
+
+# Wait for ChatOS server to be ready
+elapsed=0
+while ! nc -z 127.0.0.1 "${KIOSK_PORT}" 2>/dev/null; do
+    elapsed=$((elapsed + KIOSK_POLL_INTERVAL))
+    if [ "${elapsed}" -ge "${KIOSK_SERVER_TIMEOUT}" ]; then
+        echo "ERROR: server not ready after ${KIOSK_SERVER_TIMEOUT}s on port ${KIOSK_PORT}"
+        exit 1
+    fi
+    echo "Waiting for server on port ${KIOSK_PORT}... (${elapsed}s)"
+    sleep "${KIOSK_POLL_INTERVAL}"
+done
+echo "Server ready on port ${KIOSK_PORT}"
+
+# Clean stale Chromium SingletonLock (prevents "already running" errors)
+rm -f "${KIOSK_CHROMIUM_DATA_DIR}/SingletonLock"
+
+# Start Chromium — exec replaces this shell, so Chromium exit = X exit
+exec /usr/local/bin/chrome ${KIOSK_CHROMIUM_FLAGS} "${KIOSK_URL}"

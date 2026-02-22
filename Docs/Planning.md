@@ -82,7 +82,11 @@ All steps complete. 184 tests passing.
     `ui/src/components/ChatPanel.tsx`, `ui/src/App.tsx`,
     `tests/test_file_server.py` (new), `tests/test_ws_server.py`, `tests/test_orchestrator.py`
   - 383 total tests (30 new in test_file_server, 13 new in test_orchestrator, 3 new in test_ws_server)
-- [ ] **Step 15: Kiosk setup** — xenodm + chromium --kiosk auto-launch
+- [x] **Step 15: Kiosk setup** — xinit + Chromium kiosk auto-launch (skip xenodm)
+  - Files: `src/models.py` (+4 models), `src/kiosk_config.py` (new), `etc/chatos/kiosk.conf` (new),
+    `deploy/kiosk/launch-kiosk.sh` (new), `deploy/kiosk/xinitrc` (new),
+    `deploy/kiosk/reset-console.sh` (new), `tests/test_kiosk_config.py` (new)
+  - 412 total tests (29 new in test_kiosk_config)
 - [ ] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
 
 ### Phase 4: Hardening — NOT STARTED
@@ -210,6 +214,18 @@ home directory, session-token gated), and `/*` (static UI from `ui/dist/` in
 production). Security: timing-safe token comparison via `secrets.compare_digest()`,
 path traversal prevention via `Path.resolve()` + `relative_to()`, symlink escape
 blocking, 100 MB max file size, restrictive CSP headers on file responses.
+
+### AD-20: Skip xenodm, use xinit directly
+xenodm has no auto-login feature. For a dedicated kiosk, a login screen is
+undesirable. `xinit /path/to/xinitrc -- :0 vt05` is the standard BSD kiosk
+pattern. The `launch-kiosk.sh` script replicates xenodm's `GiveConsole`
+(DRI device permissions) since xenodm won't be running.
+
+### AD-21: Keep `_chatos_ui` with `/sbin/nologin`, use doas
+`xinit` doesn't check the user's login shell — it runs the client script
+directly. `doas -u _chatos_ui` works regardless of shell. Keeping
+`/sbin/nologin` prevents interactive login, which is correct for a service
+account. Requires `permit nopass root as _chatos_ui` in doas.conf (Step 20).
 
 ## Known Limitations
 
