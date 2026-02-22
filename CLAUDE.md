@@ -74,17 +74,22 @@ cd ui && npm run dev
 │   ├── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
 │   ├── test_ws_server.py           # 34 tests — WebSocket server, protocol, single-conn guard, session token
 │   ├── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
-│   └── test_kiosk_config.py       # 29 tests — file loading, Chromium flags, shell export, models
+│   ├── test_kiosk_config.py       # 29 tests — file loading, Chromium flags, shell export, models
+│   └── test_rc_scripts.py         # 45 tests — rc.d structure, pexp patterns, paths, rc.conf
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)
 │   ├── mcp.toml                    # MCP server configs + credentials (Phase 2)
 │   └── kiosk.conf                  # Kiosk browser settings (URL, display, Chromium flags)
 ├── deploy/
-│   └── kiosk/                      # Kiosk launch scripts (Step 15)
-│       ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
-│       ├── xinitrc                 # X session: xset, wait for server, exec Chromium
-│       └── reset-console.sh        # Cleanup: restore DRI/console ownership
+│   ├── kiosk/                      # Kiosk launch scripts (Step 15)
+│   │   ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
+│   │   ├── xinitrc                 # X session: xset, wait for server, exec Chromium
+│   │   └── reset-console.sh        # Cleanup: restore DRI/console ownership
+│   └── rc.d/                       # OpenBSD service scripts (Step 16)
+│       ├── chatos_agent            # rc.d script: agent WebSocket server
+│       ├── chatos_ui               # rc.d script: kiosk browser
+│       └── rc.conf.local.example   # Example /etc/rc.conf.local entries
 ├── Docs/
 │   └── Planning.md                 # Build plan, milestones, architecture decisions
 ├── .claude/                        # Agent SDK config (placeholders)

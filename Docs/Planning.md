@@ -54,7 +54,7 @@ All steps complete. 184 tests passing.
 - [x] **Step 11: Test subagent routing + event stream** — Verify orchestrator delegates
   to correct subagent and emits correct event types.
 
-### Phase 3: Web UI + Kiosk — IN PROGRESS
+### Phase 3: Web UI + Kiosk — COMPLETE
 
 - [x] **Step 12: ws_server.py** — WebSocket server bridging browser ↔ agent. Sends
   structured events (JSON) per the event stream protocol.
@@ -87,7 +87,10 @@ All steps complete. 184 tests passing.
     `deploy/kiosk/launch-kiosk.sh` (new), `deploy/kiosk/xinitrc` (new),
     `deploy/kiosk/reset-console.sh` (new), `tests/test_kiosk_config.py` (new)
   - 412 total tests (29 new in test_kiosk_config)
-- [ ] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
+- [x] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
+  - Files: `deploy/rc.d/chatos_agent` (new), `deploy/rc.d/chatos_ui` (new),
+    `deploy/rc.d/rc.conf.local.example` (new), `tests/test_rc_scripts.py` (new)
+  - 457 total tests (45 new in test_rc_scripts)
 
 ### Phase 4: Hardening — NOT STARTED
 
@@ -226,6 +229,21 @@ pattern. The `launch-kiosk.sh` script replicates xenodm's `GiveConsole`
 directly. `doas -u _chatos_ui` works regardless of shell. Keeping
 `/sbin/nologin` prevents interactive login, which is correct for a service
 account. Requires `permit nopass root as _chatos_ui` in doas.conf (Step 20).
+
+### AD-22: Direct daemon path, no wrapper script
+Use the Python interpreter directly as `daemon` with `-m src --serve` in
+`daemon_flags`. Follows the PostgreSQL rc.d pattern on OpenBSD (essential flags
+in daemon_flags). Simpler than a wrapper script, no extra indirection.
+
+### AD-23: No daemon_user for chatos_ui
+The chatos_ui rc.d script does NOT set `daemon_user` because `launch-kiosk.sh`
+runs as root (for DRI device `chown`) and drops privileges to `_chatos_ui`
+internally via `doas`. This was established in AD-21 (Step 15).
+
+### AD-24: Port check for dependency enforcement
+`chatos_ui`'s `rc_pre()` checks port 8400 via `nc -z` rather than
+`rcctl check chatos_agent`. A running process doesn't guarantee the port is
+listening. The port check confirms the server is actually ready.
 
 ## Known Limitations
 

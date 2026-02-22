@@ -1,0 +1,22 @@
+#!/bin/ksh
+
+daemon="/usr/local/share/chatos/deploy/kiosk/launch-kiosk.sh"
+
+. /etc/rc.d/rc.subr
+
+pexp="xinit /usr/local/share/chatos/deploy/kiosk/xinitrc.*"
+rc_bg=YES
+rc_reload=NO
+
+rc_pre() {
+    if ! nc -z 127.0.0.1 8400 2>/dev/null; then
+        logger -t chatos_ui "chatos_agent not listening on port 8400"
+        return 1
+    fi
+}
+
+rc_post() {
+    /usr/local/share/chatos/deploy/kiosk/reset-console.sh
+}
+
+rc_cmd $1

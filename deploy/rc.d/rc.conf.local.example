@@ -1,0 +1,9 @@
+# ChatOS services (order matters — agent must start before UI)
+pkg_scripts="chatos_agent chatos_ui"
+
+# Agent overrides (defaults baked into rc.d script):
+#chatos_agent_flags="-m src --serve --port 9000 --model opus --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs --home-dir /home/agent01 --static-dir /usr/local/share/chatos/ui/dist"
+chatos_agent_timeout=60
+
+# UI overrides:
+chatos_ui_timeout=60

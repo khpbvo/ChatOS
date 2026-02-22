@@ -1,0 +1,20 @@
+#!/bin/ksh
+
+daemon="/usr/local/share/chatos/venv/bin/python"
+daemon_flags="-m src --serve --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs --home-dir /home/agent01 --static-dir /usr/local/share/chatos/ui/dist"
+daemon_user="_chatos"
+daemon_execdir="/usr/local/share/chatos"
+
+. /etc/rc.d/rc.subr
+
+pexp="${daemon} -m src --serve.*"
+rc_bg=YES
+rc_reload=NO
+
+rc_pre() {
+    install -d -o _chatos -g _chatos -m 750 /var/chatos/logs
+    install -d -o _chatos -g _chatos -m 750 /var/chatos/run
+    install -d -o _chatos -g _chatos -m 750 /var/chatos/sessions
+}
+
+rc_cmd $1
