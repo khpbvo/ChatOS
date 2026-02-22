@@ -1,0 +1,15 @@
+.user-message {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.user-message__bubble {
+  max-width: 70%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--user-bg);
+  color: var(--user-text);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -60,27 +60,16 @@ All steps complete. 184 tests passing.
   structured events (JSON) per the event stream protocol.
   - Files: `src/ws_server.py`, `src/models.py` (3 new models), `src/__main__.py`, `tests/test_ws_server.py`
   - 31 tests (lifecycle, protocol, errors, single-connection guard, new models)
-- [ ] **Step 13: Chat UI** — React + TypeScript + Vite chat interface in `ui/`.
+- [x] **Step 13: Chat UI** — React + TypeScript + Vite chat interface in `ui/`.
   Connects to the WebSocket server (Step 12) and renders the event stream.
-  - **Stack:** React 19, TypeScript, Vite, plain CSS (single target: Chromium kiosk)
+  - Files: `ui/` directory (22 files: package.json, tsconfig.json, vite.config.ts,
+    index.html, src/types/events.ts, src/state/reducer.ts, src/hooks/useWebSocket.ts,
+    src/hooks/useAutoScroll.ts, src/styles/variables.css, src/styles/global.css,
+    src/components/*.tsx + *.css, src/App.tsx, src/main.tsx)
+  - **Stack:** React 19, TypeScript 5.6, Vite 6, plain CSS (single target: Chromium kiosk)
   - **Dev:** `npm run dev` (Vite HMR) with WebSocket proxy to `ws://127.0.0.1:8400`
   - **Build:** `npm run build` → `ui/dist/` static files (served by `_chatos_ui` in Step 14)
-  - **State:** `useReducer` for message list — append events, collapse tool output, connection status
-  - **Key hook:** `useWebSocket` — connect, auto-reconnect, parse events, dispatch to state
-  - **Components:**
-    - `App` — top-level, manages WebSocket connection
-    - `ChatPanel` — message list + input bar container
-    - `MessageList` — scrollable, auto-scroll to bottom
-    - `InputBar` — text input + send button
-    - `ThinkingIndicator` — animated spinner for ThinkingEvent
-    - `ToolCallMessage` — tool name + args, collapsible output preview (≤25 lines)
-    - `TextMessage` — AI response text (persists on screen)
-    - `MediaMessage` — inline image/video/link rendering
-    - `ErrorMessage` — error display
-  - **Types:** `ui/src/types/events.ts` — mirrors Python Event models
-  - **UX flow:** ThinkingEvent → animated spinner → ToolCallEvent shows name+args →
-    ToolOutputEvent shows ≤25-line preview → ToolCollapseEvent collapses previous →
-    TextEvent stays on screen → MediaEvent renders inline
+  - **Note:** OpenBSD arm64 requires `@rollup/wasm-node` (npm override in package.json)
   - CSP-sandboxed iframe for on-demand web browsing (BrowserPanel, stretch goal)
 - [ ] **Step 14: File server** — HTTP endpoint in `_chatos_ui` that serves local files
   (images, documents) to the browser. Restricted to user home dir, session-gated.

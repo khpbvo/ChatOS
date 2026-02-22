@@ -1,0 +1,76 @@
+.tool-call {
+  margin: var(--space-xs) var(--space-md);
+  border: 1px solid var(--tool-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tool-call__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--tool-header-bg);
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-call__header:hover {
+  background: var(--bg-surface);
+}
+
+.tool-call__chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tool-call__name {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-call__summary {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call__body {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--tool-bg);
+}
+
+.tool-call__input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: var(--space-sm);
+}
+
+.tool-call__output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.tool-call__truncated {
+  color: var(--text-muted);
+  font-style: italic;
+}

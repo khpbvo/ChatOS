@@ -77,16 +77,31 @@ cd ui && npm run dev
 │   └── commands/
 ├── ui/                             # Kiosk web interface (React + Vite + TypeScript)
 │   ├── index.html                  # Vite entry HTML
-│   ├── package.json                # Node dependencies
+│   ├── package.json                # Node deps + @rollup/wasm-node override for OpenBSD arm64
 │   ├── vite.config.ts              # Vite config (WS proxy in dev)
-│   ├── tsconfig.json               # TypeScript config
-│   └── src/                        # React application
-│       ├── main.tsx                # Entry point
-│       ├── App.tsx                 # Top-level, WebSocket connection
-│       ├── hooks/useWebSocket.ts   # WS connect, reconnect, event dispatch
-│       ├── components/             # Chat UI components
-│       ├── types/events.ts         # Event types matching Python models
-│       └── styles/index.css        # Styles
+│   ├── tsconfig.json               # TypeScript config (ES2022, strict, react-jsx)
+│   └── src/
+│       ├── main.tsx                # ReactDOM.createRoot entry point
+│       ├── App.tsx                 # useReducer + useWebSocket wiring
+│       ├── types/events.ts         # TypeScript mirrors of Python Event models
+│       ├── state/reducer.ts        # ChatState, ChatAction, chatReducer
+│       ├── hooks/
+│       │   ├── useWebSocket.ts     # WS connect, reconnect, event→action mapping
+│       │   └── useAutoScroll.ts    # Smart auto-scroll (skip if user scrolled up)
+│       ├── styles/
+│       │   ├── variables.css       # CSS custom properties (dark theme)
+│       │   └── global.css          # Reset, body, root layout
+│       └── components/             # Chat UI components (*.tsx + *.css)
+│           ├── ChatPanel.tsx       # Layout: ConnectionStatus + MessageList + InputBar
+│           ├── MessageList.tsx     # Scrollable list, renders ChatItem[]
+│           ├── InputBar.tsx        # Text input + send button
+│           ├── ConnectionStatus.tsx # Green/yellow/red dot indicator
+│           ├── UserMessage.tsx     # Right-aligned user bubble
+│           ├── ThinkingIndicator.tsx # Animated dots spinner
+│           ├── ToolCallMessage.tsx # Tool name+args, collapsible output
+│           ├── TextMessage.tsx     # AI response text
+│           ├── MediaMessage.tsx    # Inline image/video/link
+│           └── ErrorMessage.tsx    # Red error box with code
 ├── .venv/                          # Python 3.12 virtual environment
 ├── pyproject.toml                  # Project config and dependencies
 └── CLAUDE.md                       # This file

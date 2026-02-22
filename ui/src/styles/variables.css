@@ -1,0 +1,45 @@
+:root {
+  /* Background */
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-surface: #0f3460;
+  --bg-input: #1a1a2e;
+
+  /* Text */
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --text-muted: #707080;
+
+  /* Accent */
+  --accent: #4a9eff;
+  --accent-hover: #6bb3ff;
+
+  /* Status */
+  --color-success: #4caf50;
+  --color-warning: #ff9800;
+  --color-error: #f44336;
+
+  /* User bubble */
+  --user-bg: #0f3460;
+  --user-text: #e0e0e0;
+
+  /* Tool output */
+  --tool-bg: #121225;
+  --tool-border: #2a2a4a;
+  --tool-header-bg: #1e1e3a;
+
+  /* Fonts */
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+}
