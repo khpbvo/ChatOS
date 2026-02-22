@@ -177,6 +177,18 @@ def main() -> None:
         mcp_config=mcp_config,
     )
 
+    # Apply process sandbox (after all config loaded, before event loop)
+    from .sandbox_profiles import build_cli_sandbox
+    sandbox = build_cli_sandbox(
+        log_dir=str(log_dir),
+        app_dir=str(PROJECT_ROOT),
+    )
+    try:
+        sandbox.apply()
+        print("Sandbox applied: pledge + unveil active", file=sys.stderr)
+    except Exception as exc:
+        print(f"Warning: Sandbox not applied: {exc}", file=sys.stderr)
+
     asyncio.run(repl(orchestrator))
 
 

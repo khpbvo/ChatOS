@@ -100,7 +100,13 @@ All steps complete. 184 tests passing.
   - Sandbox builder class with two-phase API (builder → apply)
   - Real pledge/unveil integration tests via subprocess isolation
   - No-op on non-OpenBSD platforms; 36 OpenBSD 7.8 promises validated
-- [ ] **Step 18: Apply pledge/unveil** — Lock down each process
+- [x] **Step 18: Apply pledge/unveil** — Lock down each process
+  - Files: `src/sandbox_profiles.py` (new), `src/ws_server.py`, `src/cli.py`,
+    `tests/test_sandbox_profiles.py` (new)
+  - 546 total tests (37 new in test_sandbox_profiles)
+  - Two builder functions (server + CLI) return configured Sandbox instances
+  - Graceful failure: processes continue unsandboxed if apply() raises
+  - Real subprocess integration tests verify pledge/unveil on OpenBSD
 - [ ] **Step 19: Watchdog logic** — Monitor for unexpected behavior
 - [ ] **Step 20: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
 
@@ -272,6 +278,31 @@ Step 18 fine-grained control over when each syscall fires.
 `pledge(2)` and `unveil(2)` permanently restrict the calling process. Integration
 tests that exercise real syscalls run in isolated subprocesses via
 `subprocess.run()`. The test process itself is never pledged or unveiled.
+
+### AD-29: Sandbox profiles as code, not config
+Profiles are Python functions in `src/sandbox_profiles.py`, not TOML. They
+depend on runtime CLI arguments (`--home-dir`, `--log-dir`) which makes TOML
+interpolation complex. Functions with keyword arguments are simpler and testable.
+
+### AD-30: Broad exec_promises for Claude CLI child
+The Claude CLI (Node.js) subprocess IS the agent — it runs user-requested Bash
+commands. The rules engine provides the semantic permission layer; pledge/unveil
+provide the OS-level capability boundary. Dangerous promises (`settime`,
+`disklabel`, `pf`, `drm`, `vmm`) are still excluded. `prot_exec` is required
+for Node.js V8 JIT.
+
+### AD-31: Graceful sandbox failure
+If `sandbox.apply()` raises, the process continues without sandboxing and logs a
+warning to stderr. This prevents sandbox issues from blocking deployment during
+initial rollout.
+
+### AD-32: Kiosk browser sandbox out of scope
+`_chatos_ui` runs shell scripts that exec Chromium. Chromium has its own sandbox.
+Shell-level hardening would use OpenBSD's `pledge(1)` utility — a separate concern.
+
+### AD-33: Unveil inheritance across exec
+On OpenBSD, the unveil list persists across `fork(2)` and `execve(2)`. The Claude
+CLI subprocess is restricted to the same unveiled paths as the parent Python process.
 
 ## Known Limitations
 

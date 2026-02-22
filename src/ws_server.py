@@ -260,6 +260,20 @@ def main() -> None:
         static_dir=static_dir,
     )
 
+    # Apply process sandbox (after all config loaded, before event loop)
+    from .sandbox_profiles import build_server_sandbox
+    sandbox = build_server_sandbox(
+        log_dir=str(log_dir),
+        home_dir=str(home_dir) if home_dir else None,
+        static_dir=str(static_dir) if static_dir else None,
+        app_dir=str(Path(__file__).resolve().parent.parent),
+    )
+    try:
+        sandbox.apply()
+        print("Sandbox applied: pledge + unveil active", file=sys.stderr)
+    except Exception as exc:
+        print(f"Warning: Sandbox not applied: {exc}", file=sys.stderr)
+
     print(f"Starting WebSocket server on {args.host}:{args.port}", file=sys.stderr)
     asyncio.run(server.serve())
 
