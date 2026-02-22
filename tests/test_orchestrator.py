@@ -5,8 +5,20 @@ from pathlib import Path
 
 import pytest
 
+from src.agent_registry import AgentRegistry
 from src.audit import AuditLogger
-from src.models import Action, Permissions, Resources, RulesConfig, RulesMeta
+from src.mcp_config import McpConfigLoader
+from src.models import (
+    Action,
+    AgentConfig,
+    AgentsConfig,
+    EmailMcpConfig,
+    McpConfig,
+    Permissions,
+    Resources,
+    RulesConfig,
+    RulesMeta,
+)
 from src.orchestrator import (
     ALLOWED_TOOLS,
     MODEL_MAP,
@@ -288,6 +300,80 @@ class TestBuildOptions:
         assert options.permission_mode == "bypassPermissions"
 
 
+# -- Build options with agents and MCP --
+
+
+class TestBuildOptionsWithAgents:
+    def _make_registry(self, tmp_path: Path) -> AgentRegistry:
+        toml_path = tmp_path / "agents.toml"
+        toml_path.write_text("""\
+[models]
+default = "sonnet"
+
+[agent.system]
+model = "sonnet"
+description = "System agent"
+
+[agent.files]
+model = "sonnet"
+description = "Files agent"
+""")
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "system.md").write_text("System prompt")
+        (prompts_dir / "files.md").write_text("Files prompt")
+        return AgentRegistry.from_paths(toml_path, prompts_dir)
+
+    def test_agents_in_options(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger, tmp_path: Path
+    ) -> None:
+        registry = self._make_registry(tmp_path)
+        orch = Orchestrator(
+            rules_engine, audit_logger, agent_registry=registry
+        )
+        options = orch.build_options()
+        assert hasattr(options, "agents")
+        assert "system" in options.agents
+        assert "files" in options.agents
+
+    def test_agents_have_descriptions(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger, tmp_path: Path
+    ) -> None:
+        registry = self._make_registry(tmp_path)
+        orch = Orchestrator(
+            rules_engine, audit_logger, agent_registry=registry
+        )
+        options = orch.build_options()
+        assert options.agents["system"]["description"] == "System agent"
+
+    def test_no_agents_without_registry(self, orchestrator: Orchestrator) -> None:
+        options = orchestrator.build_options()
+        assert not options.agents or options.agents == {} or options.agents is None
+
+
+class TestBuildOptionsWithMcp:
+    def test_mcp_servers_in_options(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger
+    ) -> None:
+        email_cfg = EmailMcpConfig(
+            imap_server="imap.test.com",
+            smtp_server="smtp.test.com",
+            username="u@t.com",
+            password="p",
+        )
+        mcp = McpConfigLoader(McpConfig(email=email_cfg))
+        orch = Orchestrator(
+            rules_engine, audit_logger, mcp_config=mcp
+        )
+        options = orch.build_options()
+        assert hasattr(options, "mcp_servers")
+        assert "email" in options.mcp_servers
+
+    def test_no_mcp_without_config(self, orchestrator: Orchestrator) -> None:
+        options = orchestrator.build_options()
+        assert not options.mcp_servers or options.mcp_servers == {} or options.mcp_servers is None
+
+
 # -- Lifecycle tests --
 
 
@@ -300,5 +386,32 @@ class TestLifecycle:
             async for _ in orchestrator.query("hello"):
                 pass
 
+    async def test_query_events_before_start_raises(self, orchestrator: Orchestrator) -> None:
+        with pytest.raises(RuntimeError, match="not started"):
+            async for _ in orchestrator.query_events("hello"):
+                pass
+
     async def test_stop_when_not_started(self, orchestrator: Orchestrator) -> None:
         await orchestrator.stop()  # should not raise
+
+
+# -- System prompt tests --
+
+
+class TestSystemPrompt:
+    def test_prompt_mentions_files(self) -> None:
+        assert "Files" in ORCHESTRATOR_SYSTEM_PROMPT
+
+    def test_prompt_mentions_web(self) -> None:
+        assert "Web" in ORCHESTRATOR_SYSTEM_PROMPT
+
+    def test_prompt_mentions_email(self) -> None:
+        assert "Email" in ORCHESTRATOR_SYSTEM_PROMPT
+
+    def test_prompt_mentions_permissions(self) -> None:
+        assert "denied" in ORCHESTRATOR_SYSTEM_PROMPT
+        assert "confirmation" in ORCHESTRATOR_SYSTEM_PROMPT
+
+    def test_prompt_friendly_tone(self) -> None:
+        assert "friendly" in ORCHESTRATOR_SYSTEM_PROMPT
+        assert "sysadmin" in ORCHESTRATOR_SYSTEM_PROMPT

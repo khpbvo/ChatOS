@@ -2,6 +2,7 @@
 
 Tests the full pipeline: rules.toml → RulesEngine → Orchestrator hooks → AuditLogger.
 Uses the project's actual rules.toml to verify production behavior.
+Also tests Phase 2 additions: subagent definitions, event models, MCP config.
 """
 
 import json
@@ -9,8 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from src.agent_registry import AgentRegistry
 from src.audit import AuditLogger
-from src.models import Action, RulesConfig, RulesMeta
+from src.mcp_config import McpConfigLoader
+from src.models import Action, EmailMcpConfig, McpConfig, RulesConfig, RulesMeta
 from src.orchestrator import Orchestrator
 from src.rules_engine import RulesEngine
 
@@ -568,3 +571,190 @@ class TestModelValidation:
         assert config.permissions.forbidden_write_paths == []
         assert config.resources.max_concurrent_ops == 5
         assert config.resources.session_timeout_minutes == 30
+
+
+# =============================================================================
+# Phase 2: Subagent definitions in orchestrator
+# =============================================================================
+
+PROD_AGENTS_TOML = Path(__file__).resolve().parent.parent / "etc" / "chatos" / "agents.toml"
+PROD_PROMPTS_DIR = Path(__file__).resolve().parent.parent / ".claude" / "agents"
+
+
+@pytest.fixture
+def prod_agent_registry() -> AgentRegistry:
+    """AgentRegistry loaded from the project's actual agents.toml."""
+    return AgentRegistry.from_paths(PROD_AGENTS_TOML, PROD_PROMPTS_DIR)
+
+
+class TestSubagentIntegration:
+    """Test subagent definitions built from production configs."""
+
+    def test_prod_agents_toml_loads(self, prod_agent_registry: AgentRegistry) -> None:
+        names = prod_agent_registry.agent_names()
+        assert "system" in names
+        assert "files" in names
+        assert "web" in names
+        assert "media" in names
+        assert "mail" in names
+
+    def test_prod_prompts_loaded(self, prod_agent_registry: AgentRegistry) -> None:
+        for name in ("system", "files", "web", "media", "mail"):
+            assert name in prod_agent_registry.prompts
+            assert len(prod_agent_registry.prompts[name]) > 50
+
+    def test_prod_definitions_built(self, prod_agent_registry: AgentRegistry) -> None:
+        defs = prod_agent_registry.build_agent_definitions()
+        assert len(defs) == 5
+        for name in ("system", "files", "web", "media", "mail"):
+            assert name in defs
+            assert "description" in defs[name]
+            assert "model" in defs[name]
+            assert "instructions" in defs[name]
+            assert "allowed_tools" in defs[name]
+
+    def test_orchestrator_with_agents(
+        self,
+        prod_engine: RulesEngine,
+        audit_logger: AuditLogger,
+        prod_agent_registry: AgentRegistry,
+    ) -> None:
+        orch = Orchestrator(
+            prod_engine, audit_logger, agent_registry=prod_agent_registry
+        )
+        options = orch.build_options()
+        assert hasattr(options, "agents")
+        assert "system" in options.agents
+        assert "files" in options.agents
+
+    def test_orchestrator_hooks_still_fire_with_agents(
+        self,
+        prod_engine: RulesEngine,
+        audit_logger: AuditLogger,
+        prod_agent_registry: AgentRegistry,
+        log_dir: Path,
+    ) -> None:
+        """Adding agents doesn't break hook registration."""
+        orch = Orchestrator(
+            prod_engine, audit_logger, agent_registry=prod_agent_registry
+        )
+        options = orch.build_options()
+        assert "PreToolUse" in options.hooks
+        assert "PostToolUse" in options.hooks
+
+
+class TestSubagentPromptContent:
+    """Verify subagent prompts contain expected content."""
+
+    def test_system_prompt_mentions_openbsd(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "OpenBSD" in prod_agent_registry.prompts["system"]
+
+    def test_system_prompt_mentions_rcctl(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "rcctl" in prod_agent_registry.prompts["system"]
+
+    def test_files_prompt_mentions_edit(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "Edit" in prod_agent_registry.prompts["files"]
+
+    def test_web_prompt_mentions_search(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "WebSearch" in prod_agent_registry.prompts["web"]
+
+    def test_mail_prompt_mentions_mcp(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "mcp__email__" in prod_agent_registry.prompts["mail"]
+
+    def test_media_prompt_mentions_images(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "image" in prod_agent_registry.prompts["media"].lower()
+
+
+class TestMcpIntegration:
+    """Test MCP config integration with orchestrator."""
+
+    def test_orchestrator_with_mcp(
+        self,
+        prod_engine: RulesEngine,
+        audit_logger: AuditLogger,
+    ) -> None:
+        mcp = McpConfigLoader(McpConfig(
+            email=EmailMcpConfig(
+                imap_server="imap.test.com",
+                smtp_server="smtp.test.com",
+                username="u@t.com",
+                password="p",
+            )
+        ))
+        orch = Orchestrator(prod_engine, audit_logger, mcp_config=mcp)
+        options = orch.build_options()
+        assert hasattr(options, "mcp_servers")
+        assert "email" in options.mcp_servers
+
+    def test_orchestrator_without_mcp(
+        self,
+        prod_orchestrator: Orchestrator,
+    ) -> None:
+        options = prod_orchestrator.build_options()
+        # No MCP config means no mcp_servers key injected (SDK default is {})
+        assert not options.mcp_servers or options.mcp_servers == {}
+
+    def test_missing_mcp_toml_graceful(self, tmp_path: Path) -> None:
+        loader = McpConfigLoader.from_path(tmp_path / "nonexistent.toml")
+        assert loader.build_mcp_servers() == {}
+
+
+class TestFullStackWithAgentsAndMcp:
+    """Test orchestrator with both agents and MCP configured."""
+
+    async def test_full_stack_build_options(
+        self,
+        prod_engine: RulesEngine,
+        audit_logger: AuditLogger,
+        prod_agent_registry: AgentRegistry,
+    ) -> None:
+        mcp = McpConfigLoader(McpConfig(
+            email=EmailMcpConfig(
+                imap_server="imap.test.com",
+                smtp_server="smtp.test.com",
+                username="u@t.com",
+                password="p",
+            )
+        ))
+        orch = Orchestrator(
+            prod_engine, audit_logger,
+            agent_registry=prod_agent_registry,
+            mcp_config=mcp,
+        )
+        options = orch.build_options()
+
+        # All components present
+        assert "PreToolUse" in options.hooks
+        assert "system" in options.agents
+        assert "email" in options.mcp_servers
+        assert options.permission_mode == "bypassPermissions"
+
+    async def test_hooks_fire_with_full_stack(
+        self,
+        prod_engine: RulesEngine,
+        audit_logger: AuditLogger,
+        prod_agent_registry: AgentRegistry,
+        log_dir: Path,
+    ) -> None:
+        mcp = McpConfigLoader(McpConfig(
+            email=EmailMcpConfig(
+                imap_server="imap.test.com",
+                smtp_server="smtp.test.com",
+                username="u@t.com",
+                password="p",
+            )
+        ))
+        orch = Orchestrator(
+            prod_engine, audit_logger,
+            agent_registry=prod_agent_registry,
+            mcp_config=mcp,
+        )
+
+        hook_input = make_pre_hook_input("Bash", {"command": "uptime"})
+        result = await orch.pre_tool_use(hook_input, None, EMPTY_CTX)
+        specific = result.get("hookSpecificOutput", {})
+        assert specific["permissionDecision"] == "allow"
+
+        log_file = next(log_dir.glob("audit-*.jsonl"))
+        entry = json.loads(log_file.read_text().strip())
+        assert entry["decision"] == "allow"

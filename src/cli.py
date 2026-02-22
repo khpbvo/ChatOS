@@ -12,19 +12,33 @@ Authentication:
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
+from .agent_registry import AgentRegistry
 from .audit import AuditLogger, DEFAULT_LOG_DIR
+from .mcp_config import McpConfigLoader
+from .models import (
+    MediaEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolCallEvent,
+    ToolCollapseEvent,
+    ToolOutputEvent,
+)
 from .orchestrator import Orchestrator
 from .rules_engine import RulesEngine, DEFAULT_RULES_PATH
 
 # Development fallback: use project-local rules if system rules don't exist
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEV_RULES_PATH = PROJECT_ROOT / "etc" / "chatos" / "rules.toml"
+DEV_AGENTS_TOML = PROJECT_ROOT / "etc" / "chatos" / "agents.toml"
+DEV_PROMPTS_DIR = PROJECT_ROOT / ".claude" / "agents"
+DEV_MCP_TOML = PROJECT_ROOT / "etc" / "chatos" / "mcp.toml"
 
 BANNER = """\
-ChatOS v0.1.0 — AI-driven system administration for OpenBSD
+ChatOS v0.1.0 — AI-driven operating system interface for OpenBSD
 Type your message, or "exit" to quit. Ctrl+C to interrupt.
 """
 
@@ -70,6 +84,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _render_tool_input(tool_input: dict) -> str:
+    """Render tool input as a compact summary for CLI display."""
+    if "command" in tool_input:
+        return tool_input["command"]
+    if "file_path" in tool_input:
+        return tool_input["file_path"]
+    return json.dumps(tool_input, separators=(",", ":"))
+
+
 async def repl(orchestrator: Orchestrator) -> None:
     """Run the read-eval-print loop."""
     print(BANNER)
@@ -93,8 +116,24 @@ async def repl(orchestrator: Orchestrator) -> None:
                 break
 
             try:
-                async for chunk in orchestrator.query(user_input):
-                    print(chunk, end="", flush=True)
+                async for event in orchestrator.query_events(user_input):
+                    match event:
+                        case ThinkingEvent():
+                            print("[Thinking...]", flush=True)
+                        case ToolCallEvent():
+                            summary = _render_tool_input(event.tool_input)
+                            print(f"  {event.tool_name}: {summary}", flush=True)
+                        case ToolOutputEvent():
+                            if event.output:
+                                print(event.output, flush=True)
+                            if event.truncated:
+                                print("  ... (output truncated)", flush=True)
+                        case ToolCollapseEvent():
+                            pass  # No-op in CLI (meaningful in web UI)
+                        case TextEvent():
+                            print(event.text, end="", flush=True)
+                        case MediaEvent():
+                            print(f"[Media: {event.url}]", flush=True)
                 print()  # newline after response
             except Exception as e:
                 print(f"\nError: {e}", file=sys.stderr)
@@ -117,11 +156,25 @@ def main() -> None:
     audit_logger = AuditLogger(log_dir)
     print(f"Audit logs: {audit_logger.log_dir}", file=sys.stderr)
 
+    # Load agent registry (optional — graceful if agents.toml missing)
+    agent_registry = None
+    agents_toml = DEV_AGENTS_TOML
+    if agents_toml.is_file():
+        agent_registry = AgentRegistry.from_paths(agents_toml, DEV_PROMPTS_DIR)
+        print(f"Loaded agents: {', '.join(agent_registry.agent_names())}", file=sys.stderr)
+
+    # Load MCP config (optional — graceful if mcp.toml missing)
+    mcp_config = McpConfigLoader.from_path(DEV_MCP_TOML)
+    if mcp_config.has_email():
+        print("Email MCP server configured", file=sys.stderr)
+
     orchestrator = Orchestrator(
         rules_engine=rules_engine,
         audit_logger=audit_logger,
         model=args.model,
         cwd=args.cwd,
+        agent_registry=agent_registry,
+        mcp_config=mcp_config,
     )
 
     asyncio.run(repl(orchestrator))

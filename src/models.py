@@ -1,7 +1,8 @@
 """Pydantic models for ChatOS structured data."""
 
+from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -65,3 +66,98 @@ class AuditEntry(BaseModel):
     matched_pattern: str | None = None
     outcome: str | None = None
     error: str | None = None
+
+
+# -- Agent configuration models --
+
+
+class AgentConfig(BaseModel):
+    """Single agent definition from agents.toml."""
+
+    name: str
+    model: str = "sonnet"
+    description: str = ""
+
+
+class AgentsConfig(BaseModel):
+    """All agents from agents.toml."""
+
+    default_model: str = "sonnet"
+    agents: dict[str, AgentConfig] = Field(default_factory=dict)
+
+
+# -- Event stream models --
+
+
+class Event(BaseModel):
+    """Base event emitted by the orchestrator."""
+
+    type: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class ThinkingEvent(Event):
+    """Agent is thinking/processing."""
+
+    type: Literal["thinking"] = "thinking"
+    text: str
+
+
+class ToolCallEvent(Event):
+    """A tool is being called."""
+
+    type: Literal["tool_call"] = "tool_call"
+    tool_name: str
+    tool_input: dict[str, Any]
+
+
+class ToolOutputEvent(Event):
+    """Tool output (capped at 25 lines)."""
+
+    type: Literal["tool_output"] = "tool_output"
+    tool_name: str
+    output: str
+    truncated: bool
+
+
+class ToolCollapseEvent(Event):
+    """Previous tool output should collapse in the UI."""
+
+    type: Literal["tool_collapse"] = "tool_collapse"
+    tool_name: str
+
+
+class TextEvent(Event):
+    """AI response text."""
+
+    type: Literal["text"] = "text"
+    text: str
+
+
+class MediaEvent(Event):
+    """Inline media content."""
+
+    type: Literal["media"] = "media"
+    media_type: Literal["image", "video", "link"]
+    url: str
+    alt: str = ""
+
+
+# -- MCP configuration models --
+
+
+class EmailMcpConfig(BaseModel):
+    """Email MCP server credentials from mcp.toml."""
+
+    imap_server: str
+    imap_port: int = 993
+    smtp_server: str
+    smtp_port: int = 587
+    username: str
+    password: str  # Read from root-owned file, never logged
+
+
+class McpConfig(BaseModel):
+    """MCP server configuration from mcp.toml."""
+
+    email: EmailMcpConfig | None = None

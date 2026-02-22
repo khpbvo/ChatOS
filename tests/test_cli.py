@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.cli import resolve_rules_path, parse_args
+from src.cli import resolve_rules_path, parse_args, _render_tool_input
 
 
 # -- Rules path resolution tests --
@@ -60,3 +60,24 @@ class TestParseArgs:
         assert args.rules == "/tmp/rules.toml"
         assert args.model == "sonnet"
         assert args.log_dir == "/tmp/logs"
+
+
+# -- Event rendering tests --
+
+
+class TestRenderToolInput:
+    def test_bash_command(self) -> None:
+        result = _render_tool_input({"command": "ls -la"})
+        assert result == "ls -la"
+
+    def test_file_path(self) -> None:
+        result = _render_tool_input({"file_path": "/tmp/test.txt"})
+        assert result == "/tmp/test.txt"
+
+    def test_other_input(self) -> None:
+        result = _render_tool_input({"pattern": "*.py"})
+        assert "*.py" in result
+
+    def test_empty_input(self) -> None:
+        result = _render_tool_input({})
+        assert result == "{}"

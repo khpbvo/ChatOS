@@ -2,11 +2,16 @@
 
 Wires the Claude Agent SDK client to the rules engine (PreToolUse)
 and audit logger (PostToolUse) to create a permission-enforced,
-fully-audited agent session.
+fully-audited agent session with subagent delegation and structured
+event streaming.
 """
 
+from __future__ import annotations
+
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -22,36 +27,55 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import SyncHookJSONOutput
 
 from .audit import AuditLogger
-from .models import Action, Decision
+from .models import (
+    Action,
+    Decision,
+    Event,
+    MediaEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolCallEvent,
+    ToolCollapseEvent,
+    ToolOutputEvent,
+)
 from .rules_engine import RulesEngine
 
+if TYPE_CHECKING:
+    from .agent_registry import AgentRegistry
+    from .mcp_config import McpConfigLoader
+
 ORCHESTRATOR_SYSTEM_PROMPT = """\
-You are ChatOS, an AI system administrator for an OpenBSD machine.
-The user interacts with you through a chat interface instead of a traditional shell.
-You perform system administration tasks on their behalf.
+You are ChatOS, your personal computer assistant. You help the user do \
+everything on their machine through this chat — browse the web, manage \
+files, view photos and videos, send email, install apps, and keep the \
+system running smoothly.
 
-## Environment
-- Operating system: OpenBSD (current release, amd64)
-- Shell: /bin/ksh (POSIX-compatible)
-- Package manager: pkg_add / pkg_delete / pkg_info
-- Service manager: rcctl
-- Firewall: pf (packet filter)
-- Privilege escalation: doas (not sudo)
-- No /proc filesystem — use sysctl for system info
+## What you can do
+- **Files** — Browse, create, move, search, and organize files and folders.
+- **Web** — Search the web, open pages, and summarize content.
+- **Media** — View images, play audio/video, and manage media files.
+- **Email** — Read, compose, and send email.
+- **System** — Check disk space, manage apps, monitor performance, and \
+handle updates.
 
-## Rules
-- A permission system controls what you can do. Some commands run freely, \
-some require user confirmation, and some are forbidden.
-- If a command is denied, explain why and suggest alternatives.
-- If a command requires confirmation, tell the user what you intend to do \
-and wait for their approval.
-- Never attempt to bypass the permission system.
+You delegate tasks to specialist agents automatically — the user doesn't \
+need to know which one handles what.
+
+## Permissions
+Some actions run immediately, some need your confirmation first, and a \
+few are off-limits for safety.
+- If something is **denied**, explain briefly and suggest an alternative.
+- If something needs **confirmation**, describe what you're about to do \
+and wait for a yes.
+- Never try to work around the permission system.
 
 ## Style
-- Be concise and direct.
-- Show command output when relevant.
-- Warn before destructive operations.
-- When multiple steps are needed, outline the plan first.
+- Be friendly, concise, and non-technical. Speak like a helpful assistant, \
+not a sysadmin manual.
+- When showing command output, keep it brief — highlight what matters.
+- For multi-step tasks, give a quick overview before starting.
+- If something goes wrong, explain what happened in plain language and \
+offer a next step.
 """
 
 MODEL_MAP: dict[str, str] = {
@@ -59,6 +83,23 @@ MODEL_MAP: dict[str, str] = {
 }
 
 ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
+
+# Max lines of tool output to include in ToolOutputEvent
+MAX_OUTPUT_LINES = 25
+
+# Pattern to detect media URLs in text
+_MEDIA_URL_RE = re.compile(
+    r"(https?://\S+\.(?:png|jpg|jpeg|gif|webp|svg|mp4|webm|mov|mp3|ogg|wav))\b",
+    re.IGNORECASE,
+)
+
+
+def _cap_output(text: str, max_lines: int = MAX_OUTPUT_LINES) -> tuple[str, bool]:
+    """Cap text to max_lines. Returns (capped_text, was_truncated)."""
+    lines = text.split("\n")
+    if len(lines) <= max_lines:
+        return text, False
+    return "\n".join(lines[:max_lines]), True
 
 
 class Orchestrator:
@@ -71,12 +112,16 @@ class Orchestrator:
         model: str = "sonnet",
         cwd: str | Path = "/usr/local/share/chatos",
         system_prompt: str = ORCHESTRATOR_SYSTEM_PROMPT,
+        agent_registry: AgentRegistry | None = None,
+        mcp_config: McpConfigLoader | None = None,
     ) -> None:
         self._rules = rules_engine
         self._audit = audit_logger
         self._model = MODEL_MAP.get(model, model)
         self._cwd = str(cwd)
         self._system_prompt = system_prompt
+        self._agent_registry = agent_registry
+        self._mcp_config = mcp_config
         self._client: ClaudeSDKClient | None = None
 
     @property
@@ -137,13 +182,13 @@ class Orchestrator:
 
     def build_options(self) -> ClaudeAgentOptions:
         """Build the SDK client options with hooks wired up."""
-        return ClaudeAgentOptions(
-            allowed_tools=ALLOWED_TOOLS,
-            model=self._model,
-            system_prompt=self._system_prompt,
-            cwd=self._cwd,
-            permission_mode="bypassPermissions",
-            hooks={
+        kwargs: dict = {
+            "allowed_tools": ALLOWED_TOOLS,
+            "model": self._model,
+            "system_prompt": self._system_prompt,
+            "cwd": self._cwd,
+            "permission_mode": "bypassPermissions",
+            "hooks": {
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=[self.pre_tool_use]),
                 ],
@@ -151,7 +196,21 @@ class Orchestrator:
                     HookMatcher(matcher=None, hooks=[self.post_tool_use]),
                 ],
             },
-        )
+        }
+
+        # Inject subagent definitions if registry is available
+        if self._agent_registry is not None:
+            agents = self._agent_registry.build_agent_definitions()
+            if agents:
+                kwargs["agents"] = agents
+
+        # Inject MCP server configs if available
+        if self._mcp_config is not None:
+            mcp_servers = self._mcp_config.build_mcp_servers()
+            if mcp_servers:
+                kwargs["mcp_servers"] = mcp_servers
+
+        return ClaudeAgentOptions(**kwargs)
 
     async def start(self, prompt: str | None = None) -> None:
         """Create and connect the SDK client."""
@@ -160,18 +219,83 @@ class Orchestrator:
         await self._client.connect(prompt=prompt)
 
     async def query(self, message: str) -> AsyncIterator[str]:
-        """Send a user message and yield text response chunks."""
+        """Send a user message and yield text response chunks.
+
+        Convenience wrapper around query_events() for backward compatibility.
+        Only yields text content (TextEvent.text).
+        """
+        if self._client is None:
+            raise RuntimeError("Orchestrator not started — call start() first")
+
+        async for event in self.query_events(message):
+            if isinstance(event, TextEvent):
+                yield event.text
+
+    async def query_events(self, message: str) -> AsyncIterator[Event]:
+        """Send a user message and yield structured Event objects.
+
+        Maps SDK content blocks to ChatOS events:
+        - ThinkingBlock → ThinkingEvent
+        - ToolUseBlock → ToolCollapseEvent (previous) + ToolCallEvent
+        - ToolResultBlock → ToolOutputEvent (capped at MAX_OUTPUT_LINES)
+        - TextBlock → TextEvent or MediaEvent (if contains media URL)
+        """
         if self._client is None:
             raise RuntimeError("Orchestrator not started — call start() first")
 
         self._client.query(message)
 
+        last_tool_name: str | None = None
+
         async for msg in self._client.receive_response():
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        yield block.text
+                    block_type = getattr(block, "type", None)
+
+                    if block_type == "thinking":
+                        yield ThinkingEvent(text=getattr(block, "thinking", ""))
+
+                    elif block_type == "tool_use":
+                        # Collapse previous tool output if there was one
+                        if last_tool_name is not None:
+                            yield ToolCollapseEvent(tool_name=last_tool_name)
+
+                        tool_name = getattr(block, "name", "unknown")
+                        tool_input = getattr(block, "input", {})
+                        last_tool_name = tool_name
+                        yield ToolCallEvent(tool_name=tool_name, tool_input=tool_input)
+
+                    elif block_type == "tool_result":
+                        output_text = str(getattr(block, "content", ""))
+                        capped, truncated = _cap_output(output_text)
+                        yield ToolOutputEvent(
+                            tool_name=last_tool_name or "unknown",
+                            output=capped,
+                            truncated=truncated,
+                        )
+
+                    elif isinstance(block, TextBlock):
+                        text = block.text
+                        # Check for media URLs
+                        match = _MEDIA_URL_RE.search(text)
+                        if match:
+                            url = match.group(1)
+                            ext = url.rsplit(".", 1)[-1].lower()
+                            if ext in ("mp4", "webm", "mov"):
+                                media_type = "video"
+                            elif ext in ("mp3", "ogg", "wav"):
+                                media_type = "link"
+                            else:
+                                media_type = "image"
+                            yield MediaEvent(media_type=media_type, url=url)
+                        else:
+                            yield TextEvent(text=text)
+
             elif isinstance(msg, ResultMessage):
+                # Collapse last tool if still open
+                if last_tool_name is not None:
+                    yield ToolCollapseEvent(tool_name=last_tool_name)
+                    last_tool_name = None
                 break
 
     async def stop(self) -> None:
