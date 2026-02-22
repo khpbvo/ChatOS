@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Action, AuditEntry, Decision
+from .models import Action, AuditEntry, Decision, WatchdogAlert
 
 DEFAULT_LOG_DIR = Path("/var/chatos/logs")
 
@@ -73,6 +73,22 @@ class AuditLogger:
             reason="PostToolUse outcome",
             outcome=outcome,
             error=error,
+        )
+        await self.log(entry)
+
+    async def log_watchdog_alert(self, alert: WatchdogAlert, session_id: str = "") -> None:
+        """Log a watchdog anomaly alert."""
+        entry = AuditEntry(
+            timestamp=datetime.now(UTC).isoformat(),
+            session_id=session_id,
+            tool_name="watchdog",
+            tool_input={
+                "kind": alert.kind.value,
+                "count": alert.count,
+                "threshold": alert.threshold,
+            },
+            decision=Action.DENY,
+            reason=alert.message,
         )
         await self.log(entry)
 

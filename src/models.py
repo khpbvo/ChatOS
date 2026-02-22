@@ -218,3 +218,32 @@ class FullKioskConfig(BaseModel):
     kiosk: KioskConfig = Field(default_factory=KioskConfig)
     chromium: ChromiumConfig = Field(default_factory=ChromiumConfig)
     logging: KioskLoggingConfig = Field(default_factory=KioskLoggingConfig)
+
+
+# -- Watchdog models --
+
+
+class AlertKind(str, Enum):
+    """Types of anomalous behavior detected by the watchdog."""
+
+    DENIAL_CASCADE = "denial_cascade"
+    FORBIDDEN_REPEAT = "forbidden_repeat"
+    HIGH_ERROR_RATE = "high_error_rate"
+    RUNAWAY_TOOL_LOOP = "runaway_tool_loop"
+    IDENTICAL_CALL_LOOP = "identical_call_loop"
+
+
+class WatchdogAlert(BaseModel):
+    """A single anomaly alert raised by the watchdog."""
+
+    kind: AlertKind
+    message: str
+    count: int
+    threshold: int
+
+
+class WatchdogStatus(BaseModel):
+    """Result returned by the watchdog after recording an event."""
+
+    blocked: bool = False
+    alerts: list[WatchdogAlert] = Field(default_factory=list)

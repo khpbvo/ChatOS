@@ -39,6 +39,7 @@ from .models import (
     ToolOutputEvent,
 )
 from .rules_engine import RulesEngine
+from .watchdog import Watchdog
 
 if TYPE_CHECKING:
     from .agent_registry import AgentRegistry
@@ -134,6 +135,7 @@ class Orchestrator:
         agent_registry: AgentRegistry | None = None,
         mcp_config: McpConfigLoader | None = None,
         file_server_prefix: str | None = None,
+        watchdog: Watchdog | None = None,
     ) -> None:
         self._rules = rules_engine
         self._audit = audit_logger
@@ -143,6 +145,7 @@ class Orchestrator:
         self._agent_registry = agent_registry
         self._mcp_config = mcp_config
         self._file_server_prefix = file_server_prefix
+        self._watchdog = watchdog or Watchdog()
         self._client: ClaudeSDKClient | None = None
 
     @property
@@ -163,6 +166,18 @@ class Orchestrator:
         session_id = hook_input.get("session_id", "")
 
         decision = self._rules.check_tool_use(tool_name, tool_input)
+
+        # Watchdog: record decision and check for anomalies
+        wd_status = self._watchdog.record_decision(
+            tool_name, tool_input, decision.action, session_id=session_id,
+        )
+        for alert in wd_status.alerts:
+            await self._audit.log_watchdog_alert(alert, session_id=session_id)
+        if wd_status.blocked and decision.action != Action.DENY:
+            decision = Decision(
+                action=Action.DENY,
+                reason="Blocked by watchdog: anomalous behavior detected",
+            )
 
         await self._audit.log_decision(
             tool_name=tool_name,
@@ -188,6 +203,13 @@ class Orchestrator:
         is_error = isinstance(tool_response, dict) and tool_response.get("is_error", False)
         outcome = "error" if is_error else "success"
         error_msg = str(tool_response) if is_error else None
+
+        # Watchdog: record outcome and check for error storms
+        wd_status = self._watchdog.record_outcome(
+            tool_name, tool_input, outcome, session_id=session_id,
+        )
+        for alert in wd_status.alerts:
+            await self._audit.log_watchdog_alert(alert, session_id=session_id)
 
         await self._audit.log_outcome(
             tool_name=tool_name,
@@ -235,6 +257,7 @@ class Orchestrator:
 
     async def start(self, prompt: str | None = None) -> None:
         """Create and connect the SDK client."""
+        self._watchdog.reset_session()
         options = self.build_options()
         self._client = ClaudeSDKClient(options)
         await self._client.connect(prompt=prompt)
@@ -264,6 +287,7 @@ class Orchestrator:
         if self._client is None:
             raise RuntimeError("Orchestrator not started — call start() first")
 
+        self._watchdog.reset_query()
         self._client.query(message)
 
         last_tool_name: str | None = None

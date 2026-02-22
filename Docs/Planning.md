@@ -107,7 +107,13 @@ All steps complete. 184 tests passing.
   - Two builder functions (server + CLI) return configured Sandbox instances
   - Graceful failure: processes continue unsandboxed if apply() raises
   - Real subprocess integration tests verify pledge/unveil on OpenBSD
-- [ ] **Step 19: Watchdog logic** — Monitor for unexpected behavior
+- [x] **Step 19: Watchdog logic** — Monitor for unexpected behavior
+  - Files: `src/watchdog.py` (new), `src/models.py` (+3 models), `src/audit.py`,
+    `src/orchestrator.py`, `tests/test_watchdog.py` (new)
+  - 589 total tests (43 new in test_watchdog)
+  - Pure synchronous state machine — no I/O, no async
+  - Detects: denial cascades, forbidden repeats, error storms, runaway loops, identical call loops
+  - Per-query blocking with user-message reset; session counters survive resets
 - [ ] **Step 20: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
 
 ## Architecture Decisions
@@ -303,6 +309,21 @@ Shell-level hardening would use OpenBSD's `pledge(1)` utility — a separate con
 ### AD-33: Unveil inheritance across exec
 On OpenBSD, the unveil list persists across `fork(2)` and `execve(2)`. The Claude
 CLI subprocess is restricted to the same unveiled paths as the parent Python process.
+
+### AD-34: Watchdog as pure synchronous state machine
+The watchdog has no I/O and no async. It receives events, updates counters and
+deques, and returns status. The orchestrator handles all logging. This makes
+the watchdog trivially testable with 43 synchronous tests.
+
+### AD-35: Per-query blocking with user-message reset
+When a runaway or identical loop is detected, the `_blocked` flag causes all
+further `record_decision` calls to return `blocked=True`. Cleared by
+`reset_query()` at the start of the next user message. Session-scoped counters
+(forbidden pattern counts, denial/error timestamps) survive query resets.
+
+### AD-36: Monotonic clock for sliding windows
+Uses `time.monotonic()` (not `time.time()`) — immune to NTP adjustments and
+manual clock changes. Timestamps are pruned lazily via `deque.popleft()`.
 
 ## Known Limitations
 
