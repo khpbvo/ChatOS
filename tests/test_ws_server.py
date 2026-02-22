@@ -82,7 +82,7 @@ async def ws_env(tmp_path):
     server = ChatOSWebSocketServer(fake, audit, port=0)
     task = asyncio.create_task(server.serve())
     await server._ready.wait()
-    yield server, f"ws://127.0.0.1:{server.port}", fake, audit
+    yield server, f"ws://127.0.0.1:{server.port}/ws", fake, audit
     await server.stop()
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -100,7 +100,7 @@ async def ws_env_factory(tmp_path):
         t = asyncio.create_task(server.serve())
         await server._ready.wait()
         servers.append((server, t))
-        return server, f"ws://127.0.0.1:{server.port}", fake, audit
+        return server, f"ws://127.0.0.1:{server.port}/ws", fake, audit
 
     yield _make
 
@@ -134,6 +134,16 @@ class TestServerLifecycle:
             raw = await asyncio.wait_for(ws.recv(), timeout=2)
             data = json.loads(raw)
             assert data["type"] == "ready"
+
+    async def test_ready_event_includes_session_token(self, ws_env) -> None:
+        _, url, _, _ = ws_env
+        async with connect(url) as ws:
+            raw = await asyncio.wait_for(ws.recv(), timeout=2)
+            data = json.loads(raw)
+            assert data["type"] == "ready"
+            assert "session_token" in data
+            assert isinstance(data["session_token"], str)
+            assert len(data["session_token"]) > 0
 
     async def test_orchestrator_started_on_connect(self, ws_env) -> None:
         _, url, fake, _ = ws_env
@@ -447,6 +457,15 @@ class TestNewModels:
         data = event.model_dump(mode="json")
         assert data["type"] == "ready"
         assert "timestamp" in data
+
+    def test_ready_event_with_session_token(self) -> None:
+        event = ReadyEvent(session_token="abc123")
+        data = event.model_dump(mode="json")
+        assert data["session_token"] == "abc123"
+
+    def test_ready_event_default_empty_token(self) -> None:
+        event = ReadyEvent()
+        assert event.session_token == ""
 
     def test_error_event_serialization(self) -> None:
         event = ErrorEvent(error="Something went wrong", code="sdk_error")

@@ -71,8 +71,17 @@ All steps complete. 184 tests passing.
   - **Build:** `npm run build` → `ui/dist/` static files (served by `_chatos_ui` in Step 14)
   - **Note:** OpenBSD arm64 requires `@rollup/wasm-node` (npm override in package.json)
   - CSP-sandboxed iframe for on-demand web browsing (BrowserPanel, stretch goal)
-- [ ] **Step 14: File server** — HTTP endpoint in `_chatos_ui` that serves local files
-  (images, documents) to the browser. Restricted to user home dir, session-gated.
+- [x] **Step 14: File server** — HTTP file serving integrated into the WebSocket server
+  via `process_request` hook. Serves local files from user home dir (session-token gated)
+  and static UI from `ui/dist/`. Orchestrator detects local file paths and converts
+  them to `/files/` URLs for inline rendering.
+  - Files: `src/file_server.py` (new), `src/models.py`, `src/ws_server.py`,
+    `src/orchestrator.py`, `ui/vite.config.ts`, `ui/src/types/events.ts`,
+    `ui/src/state/reducer.ts`, `ui/src/hooks/useWebSocket.ts`,
+    `ui/src/components/MediaMessage.tsx`, `ui/src/components/MessageList.tsx`,
+    `ui/src/components/ChatPanel.tsx`, `ui/src/App.tsx`,
+    `tests/test_file_server.py` (new), `tests/test_ws_server.py`, `tests/test_orchestrator.py`
+  - 383 total tests (30 new in test_file_server, 13 new in test_orchestrator, 3 new in test_ws_server)
 - [ ] **Step 15: Kiosk setup** — xenodm + chromium --kiosk auto-launch
 - [ ] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
 
@@ -192,6 +201,15 @@ instead of Tailwind or CSS-in-JS — the kiosk targets a single browser
 (Chromium) so no compatibility layer is needed. State is managed with
 `useReducer` (no external state library) since the scope is a single
 chat session with streaming events.
+
+### AD-19: Integrated HTTP file server via process_request
+The HTTP file server is integrated into the existing WebSocket server on port 8400
+using the `websockets` library's `process_request` hook. A single process serves
+three things: `/ws` (WebSocket upgrade), `/files/*` (local files from the user's
+home directory, session-token gated), and `/*` (static UI from `ui/dist/` in
+production). Security: timing-safe token comparison via `secrets.compare_digest()`,
+path traversal prevention via `Path.resolve()` + `relative_to()`, symlink escape
+blocking, 100 MB max file size, restrictive CSP headers on file responses.
 
 ## Known Limitations
 

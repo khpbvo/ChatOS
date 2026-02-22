@@ -40,7 +40,7 @@ function mapEventToAction(event: ServerEvent): ChatAction | null {
         timestamp: event.timestamp,
       };
     case "ready":
-      return null; // Handled via onopen → CONNECTED
+      return { type: "READY", sessionToken: event.session_token };
     case "error":
       return {
         type: "SERVER_ERROR",

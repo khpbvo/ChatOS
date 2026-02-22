@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -93,6 +93,25 @@ _MEDIA_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Pattern to detect local file paths with media extensions
+_LOCAL_FILE_RE = re.compile(
+    r"(/(?:home|tmp)/\S+\.(?:png|jpg|jpeg|gif|webp|svg|mp4|webm|mov|mp3|ogg|wav))\b",
+    re.IGNORECASE,
+)
+
+_MEDIA_EXTENSIONS: dict[str, str] = {
+    "mp4": "video", "webm": "video", "mov": "video",
+    "mp3": "link", "ogg": "link", "wav": "link",
+}
+
+
+MediaType = Literal["image", "video", "link"]
+
+
+def _classify_media_ext(ext: str) -> MediaType:
+    """Classify a file extension into a media type: image, video, or link."""
+    return _MEDIA_EXTENSIONS.get(ext.lower(), "image")  # type: ignore[return-value]
+
 
 def _cap_output(text: str, max_lines: int = MAX_OUTPUT_LINES) -> tuple[str, bool]:
     """Cap text to max_lines. Returns (capped_text, was_truncated)."""
@@ -114,6 +133,7 @@ class Orchestrator:
         system_prompt: str = ORCHESTRATOR_SYSTEM_PROMPT,
         agent_registry: AgentRegistry | None = None,
         mcp_config: McpConfigLoader | None = None,
+        file_server_prefix: str | None = None,
     ) -> None:
         self._rules = rules_engine
         self._audit = audit_logger
@@ -122,6 +142,7 @@ class Orchestrator:
         self._system_prompt = system_prompt
         self._agent_registry = agent_registry
         self._mcp_config = mcp_config
+        self._file_server_prefix = file_server_prefix
         self._client: ClaudeSDKClient | None = None
 
     @property
@@ -276,18 +297,26 @@ class Orchestrator:
 
                     elif isinstance(block, TextBlock):
                         text = block.text
-                        # Check for media URLs
+                        # Check for HTTP media URLs
                         match = _MEDIA_URL_RE.search(text)
                         if match:
                             url = match.group(1)
                             ext = url.rsplit(".", 1)[-1].lower()
-                            if ext in ("mp4", "webm", "mov"):
-                                media_type = "video"
-                            elif ext in ("mp3", "ogg", "wav"):
-                                media_type = "link"
+                            yield MediaEvent(
+                                media_type=_classify_media_ext(ext), url=url,
+                            )
+                        elif self._file_server_prefix:
+                            # Check for local file paths
+                            local_match = _LOCAL_FILE_RE.search(text)
+                            if local_match:
+                                local_path = local_match.group(1)
+                                ext = local_path.rsplit(".", 1)[-1].lower()
+                                url = f"{self._file_server_prefix}/{local_path.lstrip('/')}"
+                                yield MediaEvent(
+                                    media_type=_classify_media_ext(ext), url=url,
+                                )
                             else:
-                                media_type = "image"
-                            yield MediaEvent(media_type=media_type, url=url)
+                                yield TextEvent(text=text)
                         else:
                             yield TextEvent(text=text)
 

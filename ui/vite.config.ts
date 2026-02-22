@@ -9,6 +9,9 @@ export default defineConfig({
         target: "ws://127.0.0.1:8400",
         ws: true,
       },
+      "/files": {
+        target: "http://127.0.0.1:8400",
+      },
     },
   },
 });

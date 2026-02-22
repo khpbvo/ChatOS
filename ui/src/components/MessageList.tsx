@@ -8,25 +8,30 @@ import { MediaMessage } from "./MediaMessage";
 import { ErrorMessage } from "./ErrorMessage";
 import "./MessageList.css";
 
-function renderItem(item: ChatItem) {
-  switch (item.kind) {
-    case "user":
-      return <UserMessage key={item.id} item={item} />;
-    case "thinking":
-      return <ThinkingIndicator key={item.id} />;
-    case "tool":
-      return <ToolCallMessage key={item.id} item={item} />;
-    case "text":
-      return <TextMessage key={item.id} item={item} />;
-    case "media":
-      return <MediaMessage key={item.id} item={item} />;
-    case "error":
-      return <ErrorMessage key={item.id} item={item} />;
-  }
+interface Props {
+  items: ChatItem[];
+  sessionToken: string;
 }
 
-export function MessageList({ items }: { items: ChatItem[] }) {
+export function MessageList({ items, sessionToken }: Props) {
   const { containerRef, handleScroll } = useAutoScroll(items);
+
+  function renderItem(item: ChatItem) {
+    switch (item.kind) {
+      case "user":
+        return <UserMessage key={item.id} item={item} />;
+      case "thinking":
+        return <ThinkingIndicator key={item.id} />;
+      case "tool":
+        return <ToolCallMessage key={item.id} item={item} />;
+      case "text":
+        return <TextMessage key={item.id} item={item} />;
+      case "media":
+        return <MediaMessage key={item.id} item={item} sessionToken={sessionToken} />;
+      case "error":
+        return <ErrorMessage key={item.id} item={item} />;
+    }
+  }
 
   return (
     <div className="message-list" ref={containerRef} onScroll={handleScroll}>

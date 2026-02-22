@@ -14,11 +14,14 @@ import argparse
 import asyncio
 import json
 import logging
+import secrets
 import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, serve
+
+from .file_server import FileServer
 
 from .agent_registry import AgentRegistry
 from .audit import AuditLogger, DEFAULT_LOG_DIR
@@ -45,11 +48,15 @@ class ChatOSWebSocketServer:
         audit_logger: AuditLogger,
         host: str = "127.0.0.1",
         port: int = 8400,
+        home_dir: Path | None = None,
+        static_dir: Path | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._audit = audit_logger
         self._host = host
         self._port = port
+        self._session_token = secrets.token_urlsafe(32)
+        self._file_server = FileServer(home_dir, self._session_token, static_dir)
         self._server: object | None = None
         self._active_connection: ServerConnection | None = None
         self._ready = asyncio.Event()
@@ -69,7 +76,12 @@ class ChatOSWebSocketServer:
 
     async def serve(self) -> None:
         """Start the server and block until stopped."""
-        self._server = await serve(self._handler, self._host, self._port)
+        self._server = await serve(
+            self._handler,
+            self._host,
+            self._port,
+            process_request=self._file_server.handle_request,
+        )
         self._ready.set()
         log.info("ChatOS WebSocket server listening on %s:%d", self._host, self.port)
         await self._server.wait_closed()
@@ -110,7 +122,9 @@ class ChatOSWebSocketServer:
                 self._active_connection = None
 
         try:
-            await self._send_event(websocket, ReadyEvent())
+            await self._send_event(
+                websocket, ReadyEvent(session_token=self._session_token)
+            )
 
             async for raw in websocket:
                 await self._process_message(websocket, raw)
@@ -192,6 +206,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cwd", type=str, default="/usr/local/share/chatos", help="Working directory for the agent"
     )
+    parser.add_argument(
+        "--home-dir", type=str, default=None,
+        help="Home directory for local file serving via /files/"
+    )
+    parser.add_argument(
+        "--static-dir", type=str, default=None,
+        help="Static UI directory to serve (e.g. ui/dist)"
+    )
     return parser.parse_args()
 
 
@@ -216,6 +238,9 @@ def main() -> None:
     if mcp_config.has_email():
         print("Email MCP server configured", file=sys.stderr)
 
+    home_dir = Path(args.home_dir) if args.home_dir else None
+    static_dir = Path(args.static_dir) if args.static_dir else None
+
     orchestrator = Orchestrator(
         rules_engine=rules_engine,
         audit_logger=audit_logger,
@@ -223,6 +248,7 @@ def main() -> None:
         cwd=args.cwd,
         agent_registry=agent_registry,
         mcp_config=mcp_config,
+        file_server_prefix="/files" if home_dir else None,
     )
 
     server = ChatOSWebSocketServer(
@@ -230,6 +256,8 @@ def main() -> None:
         audit_logger=audit_logger,
         host=args.host,
         port=args.port,
+        home_dir=home_dir,
+        static_dir=static_dir,
     )
 
     print(f"Starting WebSocket server on {args.host}:{args.port}", file=sys.stderr)

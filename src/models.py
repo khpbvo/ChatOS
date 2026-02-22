@@ -154,6 +154,7 @@ class ReadyEvent(Event):
     """Sent on connection to signal the UI can start sending."""
 
     type: Literal["ready"] = "ready"
+    session_token: str = ""
 
 
 class ErrorEvent(Event):

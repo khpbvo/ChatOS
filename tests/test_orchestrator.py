@@ -24,6 +24,8 @@ from src.orchestrator import (
     MODEL_MAP,
     ORCHESTRATOR_SYSTEM_PROMPT,
     Orchestrator,
+    _LOCAL_FILE_RE,
+    _classify_media_ext,
 )
 from src.rules_engine import RulesEngine
 
@@ -415,3 +417,80 @@ class TestSystemPrompt:
     def test_prompt_friendly_tone(self) -> None:
         assert "friendly" in ORCHESTRATOR_SYSTEM_PROMPT
         assert "sysadmin" in ORCHESTRATOR_SYSTEM_PROMPT
+
+
+# -- Local file path regex and media classification tests --
+
+
+class TestLocalFileRegex:
+    def test_matches_home_path(self) -> None:
+        text = "Here is the file: /home/agent01/Photos/sunset.jpg"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is not None
+        assert match.group(1) == "/home/agent01/Photos/sunset.jpg"
+
+    def test_matches_tmp_path(self) -> None:
+        text = "Generated at /tmp/output.png"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is not None
+        assert match.group(1) == "/tmp/output.png"
+
+    def test_ignores_non_media_extension(self) -> None:
+        text = "See /home/user/file.txt for details"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is None
+
+    def test_ignores_http_urls(self) -> None:
+        text = "Download from https://example.com/photo.jpg"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is None
+
+    def test_matches_various_extensions(self) -> None:
+        for ext in ("png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "webm", "mov"):
+            text = f"/home/user/file.{ext}"
+            match = _LOCAL_FILE_RE.search(text)
+            assert match is not None, f"Failed for extension: {ext}"
+
+    def test_case_insensitive(self) -> None:
+        text = "/home/user/Photo.JPG"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is not None
+
+    def test_ignores_other_paths(self) -> None:
+        text = "Config at /etc/config.png"
+        match = _LOCAL_FILE_RE.search(text)
+        assert match is None
+
+
+class TestClassifyMediaExt:
+    def test_image_types(self) -> None:
+        for ext in ("png", "jpg", "jpeg", "gif", "webp", "svg"):
+            assert _classify_media_ext(ext) == "image"
+
+    def test_video_types(self) -> None:
+        for ext in ("mp4", "webm", "mov"):
+            assert _classify_media_ext(ext) == "video"
+
+    def test_audio_link_types(self) -> None:
+        for ext in ("mp3", "ogg", "wav"):
+            assert _classify_media_ext(ext) == "link"
+
+    def test_unknown_defaults_image(self) -> None:
+        assert _classify_media_ext("bmp") == "image"
+
+    def test_case_insensitive(self) -> None:
+        assert _classify_media_ext("MP4") == "video"
+        assert _classify_media_ext("PNG") == "image"
+
+
+class TestFileServerPrefix:
+    def test_default_prefix_none(self, orchestrator: Orchestrator) -> None:
+        assert orchestrator._file_server_prefix is None
+
+    def test_prefix_set(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger
+    ) -> None:
+        orch = Orchestrator(
+            rules_engine, audit_logger, file_server_prefix="/files"
+        )
+        assert orch._file_server_prefix == "/files"

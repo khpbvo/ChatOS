@@ -36,11 +36,14 @@ Two interfaces exist:
 # Run the WebSocket server
 .venv/bin/python -m src --serve --port 8400 --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
 
+# Run the WebSocket server with file serving + static UI
+.venv/bin/python -m src --serve --port 8400 --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs --home-dir /home/agent01 --static-dir ui/dist
+
 # Run the UI dev server (separate terminal, proxies WS to :8400)
 cd ui && npm run dev
 
 # CLI flags: --rules PATH, --log-dir PATH, --model sonnet, --cwd PATH
-# WS server flags: --serve, --host HOST, --port PORT (plus CLI flags above)
+# WS server flags: --serve, --host HOST, --port PORT, --home-dir PATH, --static-dir PATH (plus CLI flags above)
 ```
 
 ## Current File Layout
@@ -54,17 +57,19 @@ cd ui && npm run dev
 │   ├── rules_engine.py             # TOML parser + pattern matcher (RulesEngine class)
 │   ├── audit.py                    # Async JSONL audit logger (AuditLogger class)
 │   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
+│   ├── file_server.py              # HTTP file server (local files + static UI)
 │   ├── cli.py                      # CLI REPL test harness
-│   ├── ws_server.py                # WebSocket server for kiosk browser
+│   ├── ws_server.py                # WebSocket server + HTTP file server for kiosk browser
 │   └── tools/                      # Custom MCP tools (placeholder)
 │       └── __init__.py
 ├── tests/
 │   ├── test_rules_engine.py        # 48 tests — pattern matching, TOML loading
 │   ├── test_audit.py               # 14 tests — JSONL writing, date files
-│   ├── test_orchestrator.py        # 23 tests — hooks, decision mapping, options
+│   ├── test_orchestrator.py        # 48 tests — hooks, decision mapping, options, local file regex
 │   ├── test_cli.py                 # 5 tests — rules resolution, arg parsing
 │   ├── test_integration.py         # 94 tests — full pipeline, prod rules, security edge cases
-│   └── test_ws_server.py           # 31 tests — WebSocket server, protocol, single-conn guard
+│   ├── test_ws_server.py           # 34 tests — WebSocket server, protocol, single-conn guard, session token
+│   └── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)

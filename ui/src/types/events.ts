@@ -44,6 +44,7 @@ export interface MediaEvent {
 
 export interface ReadyEvent {
   type: "ready";
+  session_token: string;
   timestamp: string;
 }
 

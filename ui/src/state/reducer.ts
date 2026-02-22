@@ -62,6 +62,7 @@ export interface ChatState {
   items: ChatItem[];
   connectionStatus: ConnectionStatus;
   isAgentBusy: boolean;
+  sessionToken: string;
   nextId: number;
 }
 
@@ -69,6 +70,7 @@ export const initialState: ChatState = {
   items: [],
   connectionStatus: "disconnected",
   isAgentBusy: false,
+  sessionToken: "",
   nextId: 1,
 };
 
@@ -77,6 +79,7 @@ export const initialState: ChatState = {
 export type ChatAction =
   | { type: "CONNECTED" }
   | { type: "CONNECTING" }
+  | { type: "READY"; sessionToken: string }
   | { type: "DISCONNECTED" }
   | { type: "USER_MESSAGE"; text: string }
   | { type: "THINKING"; text: string; timestamp: string }
@@ -116,6 +119,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "CONNECTED":
       return { ...state, connectionStatus: "connected" };
+
+    case "READY":
+      return { ...state, connectionStatus: "connected", sessionToken: action.sessionToken };
 
     case "CONNECTING":
       return { ...state, connectionStatus: "connecting" };

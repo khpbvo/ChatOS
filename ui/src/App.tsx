@@ -22,6 +22,7 @@ export function App() {
       items={state.items}
       connectionStatus={state.connectionStatus}
       isAgentBusy={state.isAgentBusy}
+      sessionToken={state.sessionToken}
       onSend={handleSend}
       onReconnect={reconnect}
     />
