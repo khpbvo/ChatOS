@@ -62,6 +62,7 @@ cd ui && npm run dev
 │   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
 │   ├── file_server.py              # HTTP file server (local files + static UI)
 │   ├── kiosk_config.py             # Kiosk TOML parser + Chromium flag builder + shell exporter
+│   ├── sandbox.py                  # pledge(2)/unveil(2) ctypes bindings (Sandbox builder)
 │   ├── cli.py                      # CLI REPL test harness
 │   ├── ws_server.py                # WebSocket server + HTTP file server for kiosk browser
 │   └── tools/                      # Custom MCP tools (placeholder)
@@ -75,7 +76,8 @@ cd ui && npm run dev
 │   ├── test_ws_server.py           # 34 tests — WebSocket server, protocol, single-conn guard, session token
 │   ├── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
 │   ├── test_kiosk_config.py       # 29 tests — file loading, Chromium flags, shell export, models
-│   └── test_rc_scripts.py         # 45 tests — rc.d structure, pexp patterns, paths, rc.conf
+│   ├── test_rc_scripts.py         # 45 tests — rc.d structure, pexp patterns, paths, rc.conf
+│   └── test_sandbox.py            # 52 tests — pledge/unveil bindings, builder, state guards, subprocess
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)

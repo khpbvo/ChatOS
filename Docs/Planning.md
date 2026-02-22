@@ -92,9 +92,14 @@ All steps complete. 184 tests passing.
     `deploy/rc.d/rc.conf.local.example` (new), `tests/test_rc_scripts.py` (new)
   - 457 total tests (45 new in test_rc_scripts)
 
-### Phase 4: Hardening — NOT STARTED
+### Phase 4: Hardening — IN PROGRESS
 
-- [ ] **Step 17: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
+- [x] **Step 17: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
+  - Files: `src/sandbox.py` (new), `tests/test_sandbox.py` (new)
+  - 509 total tests (52 new in test_sandbox)
+  - Sandbox builder class with two-phase API (builder → apply)
+  - Real pledge/unveil integration tests via subprocess isolation
+  - No-op on non-OpenBSD platforms; 36 OpenBSD 7.8 promises validated
 - [ ] **Step 18: Apply pledge/unveil** — Lock down each process
 - [ ] **Step 19: Watchdog logic** — Monitor for unexpected behavior
 - [ ] **Step 20: Installer script** — curl | sh that transforms a fresh OpenBSD into ChatOS
@@ -244,6 +249,29 @@ internally via `doas`. This was established in AD-21 (Step 15).
 `chatos_ui`'s `rc_pre()` checks port 8400 via `nc -z` rather than
 `rcctl check chatos_agent`. A running process doesn't guarantee the port is
 listening. The port check confirms the server is actually ready.
+
+### AD-25: ctypes over C extension for pledge/unveil bindings
+`pledge(2)` and `unveil(2)` have trivial C signatures (`int f(char*, char*)`)
+that map cleanly to ctypes. A C extension would require a compiler on target.
+ctypes is stdlib, works with OpenBSD's `libc.so` directly, and supports
+`use_errno=True` for thread-safe errno capture.
+
+### AD-26: No-op on non-OpenBSD platforms
+The sandbox module detects the platform via `sys.platform.startswith("openbsd")`.
+On non-OpenBSD systems, all syscall wrappers are silent no-ops but state is still
+tracked. This allows identical application code on dev and prod.
+
+### AD-27: Two-phase builder pattern for sandbox configuration
+Phase 1 (builder): `.promise()`, `.unveil()`, `.exec_promise()` store config and
+validate inputs. Phase 2 (apply): `.apply_unveils()`, `.lock_unveil()`,
+`.apply_pledge()` execute syscalls. A convenience `.apply()` runs the full
+sequence in correct order. This separates validation from execution and gives
+Step 18 fine-grained control over when each syscall fires.
+
+### AD-28: Subprocess isolation for pledge/unveil integration tests
+`pledge(2)` and `unveil(2)` permanently restrict the calling process. Integration
+tests that exercise real syscalls run in isolated subprocesses via
+`subprocess.run()`. The test process itself is never pledged or unveiled.
 
 ## Known Limitations
 
