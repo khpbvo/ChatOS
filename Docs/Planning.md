@@ -60,12 +60,28 @@ All steps complete. 184 tests passing.
   structured events (JSON) per the event stream protocol.
   - Files: `src/ws_server.py`, `src/models.py` (3 new models), `src/__main__.py`, `tests/test_ws_server.py`
   - 31 tests (lifecycle, protocol, errors, single-connection guard, new models)
-- [ ] **Step 13: Chat UI** — HTML/JS/CSS chat interface in `ui/` with:
-  - Streaming tool output (25-line preview, collapsing on next tool call)
-  - "Thinking..." animated spinner
-  - AI text responses (persist on screen)
-  - Media rendering (inline images, video previews with links)
-  - CSP-sandboxed iframe for on-demand web browsing
+- [ ] **Step 13: Chat UI** — React + TypeScript + Vite chat interface in `ui/`.
+  Connects to the WebSocket server (Step 12) and renders the event stream.
+  - **Stack:** React 19, TypeScript, Vite, plain CSS (single target: Chromium kiosk)
+  - **Dev:** `npm run dev` (Vite HMR) with WebSocket proxy to `ws://127.0.0.1:8400`
+  - **Build:** `npm run build` → `ui/dist/` static files (served by `_chatos_ui` in Step 14)
+  - **State:** `useReducer` for message list — append events, collapse tool output, connection status
+  - **Key hook:** `useWebSocket` — connect, auto-reconnect, parse events, dispatch to state
+  - **Components:**
+    - `App` — top-level, manages WebSocket connection
+    - `ChatPanel` — message list + input bar container
+    - `MessageList` — scrollable, auto-scroll to bottom
+    - `InputBar` — text input + send button
+    - `ThinkingIndicator` — animated spinner for ThinkingEvent
+    - `ToolCallMessage` — tool name + args, collapsible output preview (≤25 lines)
+    - `TextMessage` — AI response text (persists on screen)
+    - `MediaMessage` — inline image/video/link rendering
+    - `ErrorMessage` — error display
+  - **Types:** `ui/src/types/events.ts` — mirrors Python Event models
+  - **UX flow:** ThinkingEvent → animated spinner → ToolCallEvent shows name+args →
+    ToolOutputEvent shows ≤25-line preview → ToolCollapseEvent collapses previous →
+    TextEvent stays on screen → MediaEvent renders inline
+  - CSP-sandboxed iframe for on-demand web browsing (BrowserPanel, stretch goal)
 - [ ] **Step 14: File server** — HTTP endpoint in `_chatos_ui` that serves local files
   (images, documents) to the browser. Restricted to user home dir, session-gated.
 - [ ] **Step 15: Kiosk setup** — xenodm + chromium --kiosk auto-launch
@@ -178,6 +194,15 @@ Remote access requires an explicit `--host` override.
 Only one WebSocket client can be connected at a time. A second connection
 receives an `ErrorEvent(code="busy")` and is closed with code 4000. This
 enforces the single-user kiosk model (AD-14) at the transport layer.
+
+### AD-18: React + Vite for the kiosk UI
+The chat UI uses React 19 + TypeScript + Vite. Node.js 22 and npm 11 are
+available on the target machine. Vite provides HMR in development and
+optimized static builds for production (`ui/dist/`). Plain CSS is used
+instead of Tailwind or CSS-in-JS — the kiosk targets a single browser
+(Chromium) so no compatibility layer is needed. State is managed with
+`useReducer` (no external state library) since the scope is a single
+chat session with streaming events.
 
 ## Known Limitations
 

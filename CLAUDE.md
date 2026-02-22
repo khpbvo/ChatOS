@@ -33,7 +33,14 @@ Two interfaces exist:
 # Run the CLI test harness (requires `claude auth login` or ANTHROPIC_API_KEY)
 .venv/bin/python -m src --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
 
+# Run the WebSocket server
+.venv/bin/python -m src --serve --port 8400 --rules etc/chatos/rules.toml --log-dir /tmp/chatos-logs
+
+# Run the UI dev server (separate terminal, proxies WS to :8400)
+cd ui && npm run dev
+
 # CLI flags: --rules PATH, --log-dir PATH, --model sonnet, --cwd PATH
+# WS server flags: --serve, --host HOST, --port PORT (plus CLI flags above)
 ```
 
 ## Current File Layout
@@ -68,7 +75,18 @@ Two interfaces exist:
 │   ├── agents/                     # Subagent definitions: system, files, web, media, mail
 │   ├── skills/
 │   └── commands/
-├── ui/                             # Kiosk web interface (Phase 3)
+├── ui/                             # Kiosk web interface (React + Vite + TypeScript)
+│   ├── index.html                  # Vite entry HTML
+│   ├── package.json                # Node dependencies
+│   ├── vite.config.ts              # Vite config (WS proxy in dev)
+│   ├── tsconfig.json               # TypeScript config
+│   └── src/                        # React application
+│       ├── main.tsx                # Entry point
+│       ├── App.tsx                 # Top-level, WebSocket connection
+│       ├── hooks/useWebSocket.ts   # WS connect, reconnect, event dispatch
+│       ├── components/             # Chat UI components
+│       ├── types/events.ts         # Event types matching Python models
+│       └── styles/index.css        # Styles
 ├── .venv/                          # Python 3.12 virtual environment
 ├── pyproject.toml                  # Project config and dependencies
 └── CLAUDE.md                       # This file
@@ -379,6 +397,15 @@ focused system prompt, scoped tool set, and optional MCP servers. Defined in
 | **mail** | Email | Read | email (mcp-email-server) |
 
 ## Web UI Architecture
+
+### Stack
+
+**React 19 + TypeScript + Vite** in `ui/`. Plain CSS (single target: Chromium kiosk).
+State managed with `useReducer` — no external state library.
+
+- **Dev:** `cd ui && npm run dev` — Vite dev server with HMR, proxies WebSocket to `:8400`
+- **Build:** `cd ui && npm run build` → `ui/dist/` static files
+- **Production:** `_chatos_ui` serves `ui/dist/` to the kiosk browser
 
 ### Event Stream Protocol
 
