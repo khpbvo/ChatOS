@@ -44,14 +44,15 @@ die() {
 
 ensure_user() {
     _name="$1"
+    _home="${2:-/nonexistent}"
     if id -u "$_name" >/dev/null 2>&1; then
         info "User $_name already exists"
         return 0
     fi
     info "Creating group $_name"
     groupadd "$_name"
-    info "Creating user $_name"
-    useradd -g "$_name" -s /sbin/nologin -d /nonexistent "$_name"
+    info "Creating user $_name (home: $_home)"
+    useradd -g "$_name" -s /sbin/nologin -d "$_home" "$_name"
 }
 
 ensure_dir() {
@@ -101,7 +102,7 @@ done
 
 info "Ensuring service accounts"
 ensure_user "$CHATOS_USER"
-ensure_user "$CHATOS_UI_USER"
+ensure_user "$CHATOS_UI_USER" "/var/chatos/chromium"
 
 # ---------------------------------------------------------------------------
 # Section 7: Directory structure
@@ -172,6 +173,21 @@ install_config "${CHATOS_APP}/etc/chatos/rules.toml"  "${CHATOS_ETC}/rules.toml"
 install_config "${CHATOS_APP}/etc/chatos/agents.toml" "${CHATOS_ETC}/agents.toml" "root:${CHATOS_USER}" "640"
 install_config "${CHATOS_APP}/etc/chatos/kiosk.conf"  "${CHATOS_ETC}/kiosk.conf"  "root:wheel"          "644"
 
+# Env file for API credentials (read by the Python app at startup)
+if [ ! -f "${CHATOS_ETC}/env" ]; then
+    info "Creating ${CHATOS_ETC}/env template"
+    cat > "${CHATOS_ETC}/env" <<'ENVEOF'
+# ChatOS environment — sourced by the agent at startup.
+# Set your Anthropic API key here. The _chatos service user
+# reads this file; no interactive login or setup-token needed.
+#ANTHROPIC_API_KEY=sk-ant-...
+ENVEOF
+    chown "root:${CHATOS_USER}" "${CHATOS_ETC}/env"
+    chmod 640 "${CHATOS_ETC}/env"
+else
+    info "Config ${CHATOS_ETC}/env already exists — preserving"
+fi
+
 # ---------------------------------------------------------------------------
 # Section 13: rc.d script installation (always overwrite — code, not config)
 # ---------------------------------------------------------------------------
@@ -225,8 +241,11 @@ cat <<'EOF'
 
 Next steps:
 
-  1. Authenticate the agent (required before first start):
-     doas -u _chatos claude setup-token
+  1. Set your API key (required before first start):
+     echo 'ANTHROPIC_API_KEY=sk-ant-...' >> /etc/chatos/env
+
+     The agent reads /etc/chatos/env at startup. No interactive
+     login or setup-token needed.
 
   2. (Optional) Configure email MCP server credentials:
      Edit /etc/chatos/mcp.toml with IMAP/SMTP settings

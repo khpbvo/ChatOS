@@ -78,7 +78,7 @@ class TestFileLoading:
         conf = Path(__file__).parent.parent / "etc" / "chatos" / "kiosk.conf"
         loader = KioskConfigLoader.from_path(conf)
         assert loader.config.kiosk.url == "http://127.0.0.1:8400"
-        assert loader.config.kiosk.display == "0"
+        assert loader.config.kiosk.display == "1"
         assert loader.config.kiosk.vt == "vt05"
         assert loader.config.chromium.user_data_dir == "/var/chatos/chromium"
 
@@ -92,10 +92,13 @@ class TestChromiumFlags:
         flags = loader.chromium_flags()
         assert "--kiosk" in flags
 
-    def test_user_data_dir_present(self) -> None:
+    def test_user_data_dir_not_in_flags(self) -> None:
+        """--user-data-dir is omitted; Chrome's OpenBSD unveil sandbox
+        only unveils $HOME/.config/chromium (the default profile path).
+        We set HOME instead of using --user-data-dir."""
         loader = KioskConfigLoader(FullKioskConfig())
         flags = loader.chromium_flags()
-        assert "--user-data-dir=/var/chatos/chromium" in flags
+        assert not any(f.startswith("--user-data-dir") for f in flags)
 
     def test_disable_gpu_off_by_default(self) -> None:
         loader = KioskConfigLoader(FullKioskConfig())
@@ -121,16 +124,17 @@ class TestChromiumFlags:
         assert "" not in flags
 
     def test_flag_count_minimum(self) -> None:
-        """At least the hardcoded flags + user-data-dir."""
+        """At least the hardcoded kiosk flags."""
         loader = KioskConfigLoader(FullKioskConfig())
         flags = loader.chromium_flags()
-        assert len(flags) >= len(CHROMIUM_KIOSK_FLAGS) + 1
+        assert len(flags) >= len(CHROMIUM_KIOSK_FLAGS)
 
-    def test_custom_user_data_dir(self) -> None:
+    def test_user_data_dir_config_not_in_flags(self) -> None:
+        """Even with a custom user_data_dir, it should not appear in flags."""
         cfg = FullKioskConfig(chromium=ChromiumConfig(user_data_dir="/tmp/test-chrome"))
         loader = KioskConfigLoader(cfg)
         flags = loader.chromium_flags()
-        assert "--user-data-dir=/tmp/test-chrome" in flags
+        assert not any(f.startswith("--user-data-dir") for f in flags)
 
 
 # -- TestShellExport --

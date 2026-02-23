@@ -7,3 +7,6 @@ chatos_agent_timeout=60
 
 # UI overrides:
 chatos_ui_timeout=60
+
+# API key: set in /etc/chatos/env (root:_chatos 640), NOT here.
+# The Python app reads /etc/chatos/env at startup before spawning the SDK.

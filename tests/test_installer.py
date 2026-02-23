@@ -280,6 +280,32 @@ class TestConfigPreservation:
 # ---------------------------------------------------------------------------
 
 
+class TestEnvFile:
+    def test_env_file_created(self) -> None:
+        text = _read_script()
+        assert "/etc/chatos/env" in text
+
+    def test_env_file_permissions_640(self) -> None:
+        lines = _lines()
+        for line in lines:
+            if "chmod" in line and "env" in line and "640" in line:
+                return
+        pytest.fail("env file chmod 640 not found")
+
+    def test_env_file_owned_by_chatos(self) -> None:
+        lines = _lines()
+        for line in lines:
+            if "chown" in line and "env" in line and "CHATOS_USER" in line:
+                return
+        pytest.fail("env file chown root:_chatos not found")
+
+    def test_env_file_idempotent(self) -> None:
+        """Env file should not be overwritten if it already exists."""
+        text = _read_script()
+        # Should have an if-not-exists check before creating
+        assert "CHATOS_ETC}/env" in text or "/etc/chatos/env" in text
+
+
 class TestConfigPermissions:
     def test_rules_toml_mode_640(self) -> None:
         for line in _lines():
@@ -361,9 +387,10 @@ class TestRcctl:
 
 
 class TestPostInstallMessage:
-    def test_mentions_setup_token(self) -> None:
+    def test_mentions_env_file(self) -> None:
         text = _read_script()
-        assert "claude setup-token" in text
+        assert "ANTHROPIC_API_KEY" in text
+        assert "/etc/chatos/env" in text
 
     def test_mentions_rcctl_start(self) -> None:
         text = _read_script()

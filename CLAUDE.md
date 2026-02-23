@@ -82,12 +82,14 @@ cd ui && npm run dev
 │   ├── test_sandbox.py            # 52 tests — pledge/unveil bindings, builder, state guards, subprocess
 │   ├── test_sandbox_profiles.py   # 37 tests — sandbox profiles, integration points, subprocess
 │   ├── test_watchdog.py           # 43 tests — anomaly detection, sliding windows, resets
-│   └── test_installer.py         # 49 tests — installer script structure, constants, idempotency
+│   ├── test_env_loader.py        # 12 tests — env file loading, precedence, quoting, edge cases
+│   └── test_installer.py         # 53 tests — installer script structure, constants, env file
 ├── etc/chatos/
 │   ├── rules.toml                  # Permission patterns (safe/confirm/forbidden)
 │   ├── agents.toml                 # Agent definitions (system, files, web, media, mail)
 │   ├── mcp.toml                    # MCP server configs + credentials (Phase 2)
-│   └── kiosk.conf                  # Kiosk browser settings (URL, display, Chromium flags)
+│   ├── kiosk.conf                  # Kiosk browser settings (URL, display, Chromium flags)
+│   └── env                         # API key + env vars (root:_chatos 640, created by installer)
 ├── deploy/
 │   ├── kiosk/                      # Kiosk launch scripts (Step 15)
 │   │   ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
@@ -143,6 +145,7 @@ cd ui && npm run dev
 ├── rules.toml                      # Permission patterns (root:_chatos 640)
 ├── agents.toml                     # Agent/model config
 ├── mcp.toml                        # MCP server configs + credentials (root:_chatos 640)
+├── env                             # API key + env vars (root:_chatos 640)
 ├── kiosk.conf                      # Kiosk browser settings
 
 /usr/local/share/chatos/            # Application (owned by _chatos)
@@ -300,10 +303,14 @@ not by the SDK itself. **No API key is needed** — we use Claude account login.
 
 ### Production Setup (_chatos user)
 
-The `_chatos` user has `/sbin/nologin` — authenticate during initial setup:
+The `_chatos` user has `/sbin/nologin` — set credentials in `/etc/chatos/env`:
 ```bash
-doas -u _chatos claude setup-token   # stores persistent token for headless use
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> /etc/chatos/env
 ```
+
+The Python app reads `/etc/chatos/env` at startup (before spawning the SDK)
+and sets any variables not already in the environment. The file is
+`root:_chatos 640` — same pattern as other sensitive configs.
 
 ### Checking Auth Status
 

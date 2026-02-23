@@ -1,6 +1,6 @@
 #!/bin/sh
 # xinitrc — X session script for the ChatOS kiosk.
-# Run by xinit as _chatos_ui. No window manager — Chromium is the session.
+# Run by xinit as root. Chromium is dropped to _chatos_ui via doas.
 #
 # Flow:
 #   1. Load config from kiosk.conf via Python exporter
@@ -18,6 +18,9 @@ CHATOS_DIR="/usr/local/share/chatos"
 PYTHON="${CHATOS_DIR}/venv/bin/python"
 KIOSK_CONF="/etc/chatos/kiosk.conf"
 
+# Must be in app dir for `python -m src.*` to find the package
+cd "${CHATOS_DIR}"
+
 # Load kiosk config
 eval "$("${PYTHON}" -m src.kiosk_config "${KIOSK_CONF}")"
 
@@ -34,7 +37,7 @@ xsetroot -solid black
 
 # Hide cursor after 3 seconds of inactivity (if unclutter is installed)
 if command -v unclutter >/dev/null 2>&1; then
-    unclutter -idle 3 -root &
+    doas -u _chatos_ui unclutter -idle 3 -root &
 fi
 
 # Wait for ChatOS server to be ready
@@ -50,8 +53,30 @@ while ! nc -z 127.0.0.1 "${KIOSK_PORT}" 2>/dev/null; do
 done
 echo "Server ready on port ${KIOSK_PORT}"
 
-# Clean stale Chromium SingletonLock (prevents "already running" errors)
-rm -f "${KIOSK_CHROMIUM_DATA_DIR}/SingletonLock"
+# Ensure Chromium data dirs exist and are owned by _chatos_ui.
+# Chrome's OpenBSD unveil() sandbox only unveils $HOME/.config/chromium
+# (the default profile path). We set HOME to KIOSK_CHROMIUM_DATA_DIR so
+# the actual profile lives at $HOME/.config/chromium.
+mkdir -p "${KIOSK_CHROMIUM_DATA_DIR}/.config/chromium"
+chown -R _chatos_ui "${KIOSK_CHROMIUM_DATA_DIR}"
 
-# Start Chromium — exec replaces this shell, so Chromium exit = X exit
-exec /usr/local/bin/chrome ${KIOSK_CHROMIUM_FLAGS} "${KIOSK_URL}"
+# Clean stale Chromium SingletonLock (prevents "already running" errors)
+rm -f "${KIOSK_CHROMIUM_DATA_DIR}/.config/chromium/SingletonLock"
+
+# Set up runtime dir for Chromium (required by sandbox on OpenBSD)
+XDG_RUNTIME_DIR="/tmp/chatos-ui-runtime"
+mkdir -p "${XDG_RUNTIME_DIR}"
+chown _chatos_ui "${XDG_RUNTIME_DIR}"
+chmod 700 "${XDG_RUNTIME_DIR}"
+export XDG_RUNTIME_DIR
+
+echo "Starting Chromium as _chatos_ui"
+
+# Start Chromium as _chatos_ui — exec replaces this shell, so Chromium exit = X exit.
+# HOME is set to KIOSK_CHROMIUM_DATA_DIR so Chrome's unveil() sandbox can access
+# its default profile at $HOME/.config/chromium. No --user-data-dir flag needed.
+exec doas -u _chatos_ui \
+    env HOME="${KIOSK_CHROMIUM_DATA_DIR}" \
+        DISPLAY="${DISPLAY}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
+    /usr/local/bin/chrome ${KIOSK_CHROMIUM_FLAGS} "${KIOSK_URL}"
