@@ -335,7 +335,7 @@ manual clock changes. Timestamps are pruned lazily via `deque.popleft()`.
 ### AD-37: Idempotent installer
 Every operation checks state before acting. User exists? Skip. Directory exists?
 Correct ownership. Config already present? Preserve it. Safe to re-run for
-upgrades — application code and rc.d scripts are always updated, config files
+upgrades — application code and systemd units are always updated, config files
 are never overwritten.
 
 ### AD-38: Bash installer script
