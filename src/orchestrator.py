@@ -136,6 +136,7 @@ class Orchestrator:
         mcp_config: McpConfigLoader | None = None,
         file_server_prefix: str | None = None,
         watchdog: Watchdog | None = None,
+        cli_path: str | None = None,
     ) -> None:
         self._rules = rules_engine
         self._audit = audit_logger
@@ -146,6 +147,7 @@ class Orchestrator:
         self._mcp_config = mcp_config
         self._file_server_prefix = file_server_prefix
         self._watchdog = watchdog or Watchdog()
+        self._cli_path = cli_path
         self._client: ClaudeSDKClient | None = None
 
     @property
@@ -241,6 +243,9 @@ class Orchestrator:
             },
         }
 
+        if self._cli_path:
+            kwargs["cli_path"] = self._cli_path
+
         # Inject subagent definitions if registry is available
         if self._agent_registry is not None:
             agents = self._agent_registry.build_agent_definitions()
@@ -260,7 +265,11 @@ class Orchestrator:
         self._watchdog.reset_session()
         options = self.build_options()
         self._client = ClaudeSDKClient(options)
-        await self._client.connect(prompt=prompt)
+        try:
+            await self._client.connect(prompt=prompt)
+        except Exception:
+            self._client = None
+            raise
 
     async def query(self, message: str) -> AsyncIterator[str]:
         """Send a user message and yield text response chunks.

@@ -1,7 +1,7 @@
 #!/bin/ksh
 
 daemon="/usr/local/share/chatos/venv/bin/python"
-daemon_flags="-m src --serve --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs --home-dir /home/agent01 --static-dir /usr/local/share/chatos/ui/dist"
+daemon_flags="-m src --serve --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs --home-dir /home/agent01 --static-dir /usr/local/share/chatos/ui/dist --cli-path /home/agent01/.npm-global/bin/claude"
 daemon_user="_chatos"
 daemon_execdir="/usr/local/share/chatos"
 

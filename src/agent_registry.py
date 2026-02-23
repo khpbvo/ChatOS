@@ -7,6 +7,8 @@ AgentDefinition objects for the Claude Agent SDK.
 import tomllib
 from pathlib import Path
 
+from claude_agent_sdk.types import AgentDefinition
+
 from .models import AgentConfig, AgentsConfig
 from .orchestrator import MODEL_MAP
 
@@ -71,28 +73,31 @@ class AgentRegistry:
     def prompts(self) -> dict[str, str]:
         return self._prompts
 
-    def build_agent_definitions(self) -> dict[str, dict]:
-        """Build SDK AgentDefinition dict for ClaudeAgentOptions.agents.
+    def build_agent_definitions(self) -> dict[str, AgentDefinition]:
+        """Build SDK AgentDefinition instances for ClaudeAgentOptions.agents.
 
-        Returns a dict mapping agent name to its definition dict, ready
-        to pass as ClaudeAgentOptions(agents=...).
+        Returns a dict mapping agent name to its AgentDefinition dataclass,
+        ready to pass as ClaudeAgentOptions(agents=...).
         """
-        definitions: dict[str, dict] = {}
+        definitions: dict[str, AgentDefinition] = {}
 
         for name, agent_cfg in self._config.agents.items():
             if name in NON_SUBAGENTS:
                 continue
 
             prompt = self._prompts.get(name, "")
-            model = MODEL_MAP.get(agent_cfg.model, agent_cfg.model)
+            # AgentDefinition.model expects short aliases: sonnet/opus/haiku/inherit
+            model_alias = agent_cfg.model if agent_cfg.model in (
+                "sonnet", "opus", "haiku", "inherit",
+            ) else "sonnet"
             tools = self.get_tool_set(name)
 
-            definitions[name] = {
-                "description": agent_cfg.description,
-                "model": model,
-                "instructions": prompt,
-                "allowed_tools": tools,
-            }
+            definitions[name] = AgentDefinition(
+                description=agent_cfg.description,
+                prompt=prompt,
+                tools=tools,
+                model=model_alias,
+            )
 
         return definitions
 

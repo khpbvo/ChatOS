@@ -346,7 +346,7 @@ description = "Files agent"
             rules_engine, audit_logger, agent_registry=registry
         )
         options = orch.build_options()
-        assert options.agents["system"]["description"] == "System agent"
+        assert options.agents["system"].description == "System agent"
 
     def test_no_agents_without_registry(self, orchestrator: Orchestrator) -> None:
         options = orchestrator.build_options()
@@ -494,3 +494,28 @@ class TestFileServerPrefix:
             rules_engine, audit_logger, file_server_prefix="/files"
         )
         assert orch._file_server_prefix == "/files"
+
+
+class TestCliPath:
+    """Tests for cli_path passthrough to ClaudeAgentOptions."""
+
+    def test_default_cli_path_none(self, orchestrator: Orchestrator) -> None:
+        opts = orchestrator.build_options()
+        assert not hasattr(opts, "cli_path") or getattr(opts, "cli_path", None) is None
+
+    def test_cli_path_set(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger
+    ) -> None:
+        orch = Orchestrator(
+            rules_engine, audit_logger, cli_path="/usr/local/bin/claude"
+        )
+        opts = orch.build_options()
+        assert getattr(opts, "cli_path", None) == "/usr/local/bin/claude"
+
+    def test_cli_path_not_in_options_when_none(
+        self, rules_engine: RulesEngine, audit_logger: AuditLogger
+    ) -> None:
+        orch = Orchestrator(rules_engine, audit_logger, cli_path=None)
+        opts = orch.build_options()
+        # cli_path should not be set when None
+        assert getattr(opts, "cli_path", None) is None

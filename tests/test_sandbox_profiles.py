@@ -197,6 +197,7 @@ class TestIntegrationPoints:
                 host="127.0.0.1", port=8400, rules=None,
                 log_dir="/tmp/test-logs", model="sonnet", cwd="/tmp",
                 home_dir="/home/agent01", static_dir="/opt/ui",
+                cli_path=None,
             )
             MockRules.from_file.return_value = MagicMock()
             # Mock agent registry (DEV_AGENTS_TOML.is_file())
@@ -268,7 +269,7 @@ class TestIntegrationPoints:
             mock_args.return_value = MagicMock(
                 host="127.0.0.1", port=8400, rules=None,
                 log_dir=None, model="sonnet", cwd="/tmp",
-                home_dir=None, static_dir=None,
+                home_dir=None, static_dir=None, cli_path=None,
             )
             MockRules.from_file.return_value = MagicMock()
             with (
@@ -331,6 +332,7 @@ class TestIntegrationPoints:
                 host="127.0.0.1", port=8400, rules=None,
                 log_dir="/custom/logs", model="sonnet", cwd="/tmp",
                 home_dir="/home/testuser", static_dir="/opt/dist",
+                cli_path="/usr/local/bin/claude",
             )
             MockRules.from_file.return_value = MagicMock()
             with (
@@ -348,6 +350,7 @@ class TestIntegrationPoints:
             assert kw["log_dir"] == "/custom/logs"
             assert kw["home_dir"] == "/home/testuser"
             assert kw["static_dir"] == "/opt/dist"
+            assert kw["cli_path"] == "/usr/local/bin/claude"
             assert "app_dir" in kw
 
     @patch("src.sandbox_profiles.Sandbox")

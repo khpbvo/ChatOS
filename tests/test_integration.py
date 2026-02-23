@@ -608,10 +608,10 @@ class TestSubagentIntegration:
         assert len(defs) == 5
         for name in ("system", "files", "web", "media", "mail"):
             assert name in defs
-            assert "description" in defs[name]
-            assert "model" in defs[name]
-            assert "instructions" in defs[name]
-            assert "allowed_tools" in defs[name]
+            assert defs[name].description
+            assert defs[name].model is not None
+            assert defs[name].prompt is not None
+            assert defs[name].tools is not None
 
     def test_orchestrator_with_agents(
         self,

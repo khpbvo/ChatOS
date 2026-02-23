@@ -214,6 +214,10 @@ def parse_args() -> argparse.Namespace:
         "--static-dir", type=str, default=None,
         help="Static UI directory to serve (e.g. ui/dist)"
     )
+    parser.add_argument(
+        "--cli-path", type=str, default=None,
+        help="Path to the claude CLI binary (for ClaudeAgentOptions.cli_path)"
+    )
     return parser.parse_args()
 
 
@@ -249,6 +253,7 @@ def main() -> None:
         agent_registry=agent_registry,
         mcp_config=mcp_config,
         file_server_prefix="/files" if home_dir else None,
+        cli_path=args.cli_path,
     )
 
     server = ChatOSWebSocketServer(
@@ -267,6 +272,8 @@ def main() -> None:
         home_dir=str(home_dir) if home_dir else None,
         static_dir=str(static_dir) if static_dir else None,
         app_dir=str(Path(__file__).resolve().parent.parent),
+        cli_path=args.cli_path,
+        service_home=str(Path.home()),
     )
     try:
         sandbox.apply()

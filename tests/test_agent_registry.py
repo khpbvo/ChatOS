@@ -128,36 +128,36 @@ class TestBuildAgentDefinitions:
 
     def test_definition_has_description(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert defs["system"]["description"] == "Machine health and maintenance"
+        assert defs["system"].description == "Machine health and maintenance"
 
     def test_definition_has_model(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert defs["files"]["model"] == "claude-sonnet-4-6"
+        assert defs["files"].model == "sonnet"
 
     def test_definition_has_instructions(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert "**files** agent" in defs["files"]["instructions"]
+        assert "**files** agent" in defs["files"].prompt
 
     def test_definition_has_allowed_tools(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert defs["system"]["allowed_tools"] == ["Bash", "Read", "Glob", "Grep"]
+        assert defs["system"].tools == ["Bash", "Read", "Glob", "Grep"]
 
     def test_web_agent_tools(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert "WebSearch" in defs["web"]["allowed_tools"]
-        assert "WebFetch" in defs["web"]["allowed_tools"]
+        assert "WebSearch" in defs["web"].tools
+        assert "WebFetch" in defs["web"].tools
 
     def test_mail_agent_tools(self, registry: AgentRegistry) -> None:
         defs = registry.build_agent_definitions()
-        assert defs["mail"]["allowed_tools"] == ["Read"]
+        assert defs["mail"].tools == ["Read"]
 
     def test_empty_prompt_for_missing_md(self, agents_toml: Path, tmp_path: Path) -> None:
-        """Agent with no .md file gets empty instructions."""
+        """Agent with no .md file gets empty prompt."""
         empty_dir = tmp_path / "no_prompts"
         empty_dir.mkdir()
         reg = AgentRegistry.from_paths(agents_toml, empty_dir)
         defs = reg.build_agent_definitions()
-        assert defs["system"]["instructions"] == ""
+        assert defs["system"].prompt == ""
 
 
 # -- Tool set tests --
@@ -210,13 +210,12 @@ class TestModelOverride:
 default = "sonnet"
 
 [agent.system]
-model = "claude-custom-model"
+model = "opus"
 description = "Custom model agent"
 """)
         reg = AgentRegistry.from_paths(toml_path, prompts_dir)
         defs = reg.build_agent_definitions()
-        # Unknown model passes through as-is
-        assert defs["system"]["model"] == "claude-custom-model"
+        assert defs["system"].model == "opus"
 
     def test_inherits_default_model(self, prompts_dir: Path, tmp_path: Path) -> None:
         toml_path = tmp_path / "default_model.toml"

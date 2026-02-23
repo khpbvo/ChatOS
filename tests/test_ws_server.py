@@ -434,6 +434,27 @@ class TestSingleConnectionGuard:
             data = json.loads(raw)
             assert data["type"] == "ready"
 
+    async def test_reconnect_after_start_failure(self, ws_env_factory) -> None:
+        """After orchestrator.start() fails, a new client should be able to connect."""
+        fake = FakeOrchestrator(start_error=RuntimeError("CLI not found"))
+        server, url, _, _ = await ws_env_factory(fake)
+
+        # First connection fails at start
+        async with connect(url) as ws1:
+            raw = await asyncio.wait_for(ws1.recv(), timeout=2)
+            data = json.loads(raw)
+            assert data["code"] == "auth_failed"
+
+        await asyncio.sleep(0.1)  # let cleanup run
+        assert not server.is_connected
+
+        # Fix the error and reconnect
+        fake.start_error = None
+        async with connect(url) as ws2:
+            raw = await asyncio.wait_for(ws2.recv(), timeout=2)
+            data = json.loads(raw)
+            assert data["type"] == "ready"
+
 
 # -- TestNewModels --
 

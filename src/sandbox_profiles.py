@@ -59,6 +59,8 @@ def build_server_sandbox(
     home_dir: str | None = None,
     static_dir: str | None = None,
     app_dir: str = "/usr/local/share/chatos",
+    cli_path: str | None = None,
+    service_home: str | None = None,
 ) -> Sandbox:
     """Build a Sandbox for the WebSocket/agent server (_chatos process).
 
@@ -72,6 +74,12 @@ def build_server_sandbox(
         Static UI dist directory. Unveiled r if set and not under app_dir.
     app_dir : str
         Application source root (default: /usr/local/share/chatos).
+    cli_path : str | None
+        Path to the Claude CLI binary. Its parent directory tree is unveiled
+        rx so the subprocess can execute it.
+    service_home : str | None
+        Home directory of the service user (_chatos). Unveiled rwc so the
+        Claude CLI can read/write its config and auth tokens.
     """
     sb = Sandbox()
 
@@ -87,6 +95,18 @@ def build_server_sandbox(
     # Home directory for file serving + agent writes
     if home_dir is not None:
         sb.unveil(home_dir, "rwc")
+
+    # Service user home — CLI needs ~/.claude.json, ~/.claude/ for auth/config
+    if service_home is not None and service_home != home_dir:
+        sb.unveil(service_home, "rwc")
+
+    # Claude CLI binary — unveil its directory tree for read+execute
+    if cli_path is not None:
+        cli_resolved = Path(cli_path).resolve()
+        # Unveil the directory containing the CLI (and ancestors for traversal)
+        # resolve() follows symlinks, so we unveil the real location
+        cli_dir = str(cli_resolved.parent)
+        sb.unveil(cli_dir, "rx")
 
     # Static UI dist (only if not already under app_dir)
     if static_dir is not None:
