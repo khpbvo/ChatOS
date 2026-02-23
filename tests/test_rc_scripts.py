@@ -171,6 +171,12 @@ class TestChatosUiScript:
         assert "nc -z" in text
         assert "8400" in text
 
+    def test_rc_pre_retries_with_timeout(self) -> None:
+        """rc_pre must retry the port check to handle the rc_bg race."""
+        text = _read_script(UI_SCRIPT)
+        assert "while" in text, "rc_pre should use a retry loop"
+        assert "sleep" in text, "rc_pre should sleep between retries"
+
     def test_rc_pre_logs_failure(self) -> None:
         text = _read_script(UI_SCRIPT)
         assert "logger" in text

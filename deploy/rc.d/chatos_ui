@@ -9,10 +9,17 @@ rc_bg=YES
 rc_reload=NO
 
 rc_pre() {
-    if ! nc -z 127.0.0.1 8400 2>/dev/null; then
-        logger -t chatos_ui "chatos_agent not listening on port 8400"
-        return 1
-    fi
+    # chatos_agent runs with rc_bg=YES, so it may not have bound to
+    # port 8400 yet when this service starts.  Retry for up to 30s.
+    _timeout=30
+    _elapsed=0
+    while [ "$_elapsed" -lt "$_timeout" ]; do
+        nc -z 127.0.0.1 8400 2>/dev/null && return 0
+        sleep 1
+        _elapsed=$((_elapsed + 1))
+    done
+    logger -t chatos_ui "chatos_agent not listening on port 8400 after ${_timeout}s"
+    return 1
 }
 
 rc_post() {
