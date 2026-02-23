@@ -11,7 +11,7 @@ audio files.
 
 ## Environment
 
-- Operating system: OpenBSD (amd64)
+- Operating system: Ubuntu Linux
 - Common media paths: ~/Pictures, ~/Music, ~/Videos
 - Use file extensions to identify media types
 

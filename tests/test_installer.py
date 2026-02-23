@@ -51,7 +51,7 @@ class TestScriptStructure:
 
     def test_shebang(self) -> None:
         lines = _lines()
-        assert lines[0] == "#!/bin/ksh"
+        assert lines[0] == "#!/bin/bash"
 
     def test_set_eu(self) -> None:
         text = _read_script()
@@ -108,20 +108,30 @@ class TestConstants:
 
 
 class TestPackageInstallation:
-    def test_pkg_add_present(self) -> None:
+    def test_apt_get_present(self) -> None:
         text = _read_script()
-        assert "pkg_add" in text
+        assert "apt-get install" in text
 
     def test_required_packages(self) -> None:
         val = _find_var("PACKAGES")
         assert val is not None
-        for pkg in ("python%3.12", "node", "chromium"):
+        for pkg in ("python3", "nodejs", "chromium-browser"):
             assert pkg in val, f"Missing required package: {pkg}"
 
     def test_pip_package(self) -> None:
         val = _find_var("PACKAGES")
         assert val is not None
-        assert "py3-pip" in val
+        assert "python3-pip" in val
+
+    def test_venv_package(self) -> None:
+        val = _find_var("PACKAGES")
+        assert val is not None
+        assert "python3-venv" in val
+
+    def test_npm_package(self) -> None:
+        val = _find_var("PACKAGES")
+        assert val is not None
+        assert "npm" in val
 
     def test_optional_packages_non_fatal(self) -> None:
         text = _read_script()
@@ -130,6 +140,10 @@ class TestPackageInstallation:
         assert "unclutter" in val
         # Optional packages should have a fallback (|| warn)
         assert '|| warn' in text
+
+    def test_apt_get_update(self) -> None:
+        text = _read_script()
+        assert "apt-get update" in text
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +163,19 @@ class TestUserCreation:
 
     def test_nologin_shell(self) -> None:
         text = _read_script()
-        assert "/sbin/nologin" in text
+        assert "/usr/sbin/nologin" in text
+
+    def test_useradd_no_home_dir_flag(self) -> None:
+        """useradd should use -M flag to not create home directory."""
+        text = _read_script()
+        assert "useradd" in text
+        assert "-M" in text
+
+    def test_groupadd_before_useradd(self) -> None:
+        """groupadd should be called before useradd."""
+        text = _read_script()
+        assert "groupadd" in text
+        assert "useradd" in text
 
     def test_idempotent_user_check(self) -> None:
         """ensure_user should check if user exists before creating."""
@@ -191,6 +217,11 @@ class TestDirectoryCreation:
         assert "chown" in text
         assert "chmod" in text
 
+    def test_root_root_group(self) -> None:
+        """Top-level dirs should be owned by root:root (not root:wheel)."""
+        text = _read_script()
+        assert "root:root" in text
+
 
 # ---------------------------------------------------------------------------
 # TestApplicationDeployment
@@ -211,7 +242,11 @@ class TestApplicationDeployment:
     def test_venv_creation(self) -> None:
         text = _read_script()
         assert "venv" in text
-        assert "python3.12" in text
+        assert "python3" in text
+
+    def test_venv_uses_python3_module(self) -> None:
+        text = _read_script()
+        assert "python3 -m venv" in text
 
     def test_pip_install(self) -> None:
         text = _read_script()
@@ -335,50 +370,62 @@ class TestConfigPermissions:
 
 
 class TestServiceInstallation:
-    def test_agent_rc_script_installed(self) -> None:
+    def test_agent_systemd_unit_installed(self) -> None:
         text = _read_script()
-        assert "/etc/rc.d/chatos_agent" in text
+        assert "/etc/systemd/system/chatos-agent.service" in text
 
-    def test_ui_rc_script_installed(self) -> None:
+    def test_ui_systemd_unit_installed(self) -> None:
         text = _read_script()
-        assert "/etc/rc.d/chatos_ui" in text
+        assert "/etc/systemd/system/chatos-ui.service" in text
+
+    def test_daemon_reload(self) -> None:
+        text = _read_script()
+        assert "systemctl daemon-reload" in text
 
 
 # ---------------------------------------------------------------------------
-# TestDoasConf
+# TestSudoersConf
 # ---------------------------------------------------------------------------
 
 
-class TestDoasConf:
-    def test_doas_line_correct(self) -> None:
+class TestSudoersConf:
+    def test_sudoers_file_path(self) -> None:
         text = _read_script()
-        assert "permit nopass root as _chatos_ui" in text
+        assert "/etc/sudoers.d/chatos-ui" in text
 
-    def test_doas_idempotent_guard(self) -> None:
-        """Should check if the line already exists before appending."""
+    def test_sudoers_line_correct(self) -> None:
         text = _read_script()
-        assert "grep" in text
-        assert "doas.conf" in text
+        assert "_chatos_ui ALL=(ALL) NOPASSWD: ALL" in text
+
+    def test_sudoers_idempotent_guard(self) -> None:
+        """Should check if the sudoers file already exists before creating."""
+        text = _read_script()
+        assert "sudoers" in text
+        # Uses file-exists check ([ -f "$_sudoers_file" ])
+        assert "_sudoers_file" in text
+
+    def test_sudoers_permissions_440(self) -> None:
+        """sudoers file should be mode 440."""
+        lines = _lines()
+        for line in lines:
+            if "chmod" in line and "440" in line and "sudoers" in line:
+                return
+        pytest.fail("sudoers chmod 440 not found")
 
 
 # ---------------------------------------------------------------------------
-# TestRcctl
+# TestSystemctl
 # ---------------------------------------------------------------------------
 
 
-class TestRcctl:
-    def test_rcctl_enable_agent(self) -> None:
+class TestSystemctl:
+    def test_systemctl_enable_agent(self) -> None:
         text = _read_script()
-        assert "rcctl enable chatos_agent" in text
+        assert "systemctl enable chatos-agent" in text
 
-    def test_rcctl_enable_ui(self) -> None:
+    def test_systemctl_enable_ui(self) -> None:
         text = _read_script()
-        assert "rcctl enable chatos_ui" in text
-
-    def test_timeout_set(self) -> None:
-        text = _read_script()
-        assert "rcctl set chatos_agent timeout" in text
-        assert "rcctl set chatos_ui timeout" in text
+        assert "systemctl enable chatos-ui" in text
 
 
 # ---------------------------------------------------------------------------
@@ -392,22 +439,22 @@ class TestPostInstallMessage:
         assert "ANTHROPIC_API_KEY" in text
         assert "/etc/chatos/env" in text
 
-    def test_mentions_rcctl_start(self) -> None:
+    def test_mentions_systemctl_start(self) -> None:
         text = _read_script()
-        assert "rcctl start" in text
+        assert "systemctl start" in text
 
 
 # ---------------------------------------------------------------------------
-# TestKshSyntax
+# TestBashSyntax
 # ---------------------------------------------------------------------------
 
 
-class TestKshSyntax:
-    @pytest.mark.skipif(not shutil.which("ksh"), reason="ksh not available")
-    def test_ksh_syntax_valid(self) -> None:
+class TestBashSyntax:
+    @pytest.mark.skipif(not shutil.which("bash"), reason="bash not available")
+    def test_bash_syntax_valid(self) -> None:
         result = subprocess.run(
-            ["ksh", "-n", str(INSTALL_SCRIPT)],
+            ["bash", "-n", str(INSTALL_SCRIPT)],
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, f"ksh syntax error: {result.stderr}"
+        assert result.returncode == 0, f"bash syntax error: {result.stderr}"

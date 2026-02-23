@@ -89,25 +89,31 @@ class TestProdSafePatterns:
             "find /var -name '*.log'",
             "grep -r 'error' /var/log",
             "wc -l /etc/hosts",
-            "head -20 /var/log/messages",
-            "tail -f /var/log/daemon",
+            "head -20 /var/log/syslog",
+            "tail -f /var/log/syslog",
             "df -h",
             "uptime",
             "uname -a",
             "whoami",
             "date",
             "cal",
-            "pkg_info",
-            "pkg_info -Q nginx",
-            "sysctl hw.ncpu",
-            "ifconfig em0",
+            "dpkg -l",
+            "dpkg -l nginx",
+            "apt list --installed",
+            "sysctl kernel.hostname",
+            "ip addr show eth0",
+            "ip link show",
+            "ifconfig eth0",
             "netstat -an",
+            "ss -tuln",
             "ps aux",
             "ps aux -w",
             "top -b -n 1",
             "vmstat",
             "vmstat 1 5",
             "iostat",
+            "systemctl status nginx",
+            "journalctl -u ssh",
         ],
     )
     def test_safe_commands(self, prod_engine: RulesEngine, command: str) -> None:
@@ -126,11 +132,13 @@ class TestProdConfirmPatterns:
     @pytest.mark.parametrize(
         "command",
         [
-            "pkg_add nginx",
-            "pkg_delete vim",
-            "rcctl enable nginx",
-            "rcctl start httpd",
-            "doas pkg_add git",
+            "apt install nginx",
+            "apt-get install vim",
+            "apt remove vim",
+            "apt-get remove nginx",
+            "systemctl restart nginx",
+            "systemctl enable ssh",
+            "sudo apt install git",
             "mv /tmp/a /tmp/b",
             "cp /etc/hosts /tmp/hosts.bak",
             "chmod 644 /tmp/test",
@@ -161,17 +169,18 @@ class TestProdForbiddenPatterns:
         [
             "rm -rf /",
             "rm -rf /*",
-            "dd if=/dev/zero of=/dev/rsd0c",
+            "dd if=/dev/zero of=/dev/sda",
             "chmod -R 777 /",
             "halt",
             "reboot",
             "shutdown -h now",
             "passwd root",
             "vipw",
-            "usermod -G wheel agent01",
+            "usermod -G sudo agent01",
             "useradd baduser",
             "userdel agent01",
-            "pfctl -d",
+            "ufw disable",
+            "iptables -F",
             "echo bad >/etc/passwd",
             "echo bad >> /etc/shadow",
         ],
@@ -194,12 +203,12 @@ class TestProdForbiddenWritePaths:
     @pytest.mark.parametrize(
         "path",
         [
-            "/etc/master.passwd",
-            "/etc/doas.conf",
+            "/etc/shadow",
+            "/etc/sudoers",
             "/etc/chatos/rules.toml",
-            "/etc/pf.conf",
-            "/bsd",
-            "/bsd.rd",
+            "/etc/ufw/",
+            "/boot/vmlinuz",
+            "/boot/initrd",
         ],
     )
     def test_forbidden_write_paths(self, prod_engine: RulesEngine, path: str) -> None:
@@ -252,7 +261,7 @@ class TestPreToolUseAuditPipeline:
     async def test_confirm_command_pipeline(
         self, prod_orchestrator: Orchestrator, log_dir: Path
     ) -> None:
-        hook_input = make_pre_hook_input("Bash", {"command": "pkg_add nginx"})
+        hook_input = make_pre_hook_input("Bash", {"command": "apt install nginx"})
         result = await prod_orchestrator.pre_tool_use(hook_input, None, EMPTY_CTX)
 
         specific = result.get("hookSpecificOutput", {})
@@ -265,7 +274,7 @@ class TestPreToolUseAuditPipeline:
     async def test_forbidden_write_pipeline(
         self, prod_orchestrator: Orchestrator, log_dir: Path
     ) -> None:
-        hook_input = make_pre_hook_input("Edit", {"file_path": "/etc/pf.conf"})
+        hook_input = make_pre_hook_input("Edit", {"file_path": "/etc/sudoers"})
         result = await prod_orchestrator.pre_tool_use(hook_input, None, EMPTY_CTX)
 
         assert result.get("decision") == "block"
@@ -376,7 +385,7 @@ class TestMultiOperationSession:
         assert r2.get("hookSpecificOutput", {})["permissionDecision"] == "allow"
 
         # 3. Confirm: install package
-        pre = make_pre_hook_input("Bash", {"command": "pkg_add nginx"}, session_id=session)
+        pre = make_pre_hook_input("Bash", {"command": "apt install nginx"}, session_id=session)
         r3 = await prod_orchestrator.pre_tool_use(pre, None, EMPTY_CTX)
         assert r3.get("hookSpecificOutput", {})["permissionDecision"] == "ask"
 
@@ -385,8 +394,8 @@ class TestMultiOperationSession:
         r4 = await prod_orchestrator.pre_tool_use(pre, None, EMPTY_CTX)
         assert r4.get("decision") == "block"
 
-        # 5. Forbidden write: try to edit pf.conf
-        pre = make_pre_hook_input("Write", {"file_path": "/etc/pf.conf"}, session_id=session)
+        # 5. Forbidden write: try to edit sudoers
+        pre = make_pre_hook_input("Write", {"file_path": "/etc/sudoers"}, session_id=session)
         r5 = await prod_orchestrator.pre_tool_use(pre, None, EMPTY_CTX)
         assert r5.get("decision") == "block"
 
@@ -435,15 +444,15 @@ class TestSecurityEdgeCases:
         assert d.action == Action.DENY
 
     def test_path_traversal_double_dot(self, prod_engine: RulesEngine) -> None:
-        d = prod_engine.check_write_path("/tmp/../etc/master.passwd")
+        d = prod_engine.check_write_path("/tmp/../etc/shadow")
         assert d.action == Action.DENY
 
     def test_path_traversal_multiple_levels(self, prod_engine: RulesEngine) -> None:
-        d = prod_engine.check_write_path("/tmp/../../bsd")
+        d = prod_engine.check_write_path("/tmp/../../boot/vmlinuz")
         assert d.action == Action.DENY
 
     def test_path_with_trailing_slash(self, prod_engine: RulesEngine) -> None:
-        d = prod_engine.check_write_path("/etc/master.passwd/")
+        d = prod_engine.check_write_path("/etc/shadow/")
         # normpath strips trailing slash, so this should still match
         assert d.action == Action.DENY
 
@@ -462,7 +471,7 @@ class TestSecurityEdgeCases:
         assert d.action == Action.ALLOW  # empty path is not in forbidden list
 
     def test_dd_to_block_device_forbidden(self, prod_engine: RulesEngine) -> None:
-        d = prod_engine.check_command("dd if=/dev/zero of=/dev/sd0a bs=512")
+        d = prod_engine.check_command("dd if=/dev/zero of=/dev/sda bs=512")
         assert d.action == Action.DENY
 
     def test_safe_dd_to_file_requires_confirm(self, prod_engine: RulesEngine) -> None:
@@ -646,11 +655,11 @@ class TestSubagentIntegration:
 class TestSubagentPromptContent:
     """Verify subagent prompts contain expected content."""
 
-    def test_system_prompt_mentions_openbsd(self, prod_agent_registry: AgentRegistry) -> None:
-        assert "OpenBSD" in prod_agent_registry.prompts["system"]
+    def test_system_prompt_mentions_ubuntu(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "Ubuntu" in prod_agent_registry.prompts["system"]
 
-    def test_system_prompt_mentions_rcctl(self, prod_agent_registry: AgentRegistry) -> None:
-        assert "rcctl" in prod_agent_registry.prompts["system"]
+    def test_system_prompt_mentions_systemctl(self, prod_agent_registry: AgentRegistry) -> None:
+        assert "systemctl" in prod_agent_registry.prompts["system"]
 
     def test_files_prompt_mentions_edit(self, prod_agent_registry: AgentRegistry) -> None:
         assert "Edit" in prod_agent_registry.prompts["files"]

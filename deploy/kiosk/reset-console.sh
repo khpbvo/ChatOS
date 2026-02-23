@@ -1,13 +1,13 @@
 #!/bin/sh
 # reset-console.sh — Restore DRI/console ownership after kiosk exits.
-# Counterpart to xenodm's TakeConsole. Called by rc.d rc_post() (Step 16).
+# Called by systemd ExecStopPost.
 
 set -eu
 
-# Restore DRI device ownership to root:wheel
+# Restore DRI device ownership to root:root
 for dev in /dev/dri/card0 /dev/dri/renderD128; do
-    [ -e "${dev}" ] && chown root:wheel "${dev}"
+    [ -e "${dev}" ] && chown root:root "${dev}"
 done
 
 # Restore console ownership
-[ -e /dev/console ] && chown root:wheel /dev/console
+[ -e /dev/console ] && chown root:root /dev/console

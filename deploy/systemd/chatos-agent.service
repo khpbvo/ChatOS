@@ -1,0 +1,27 @@
+[Unit]
+Description=ChatOS Agent WebSocket Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=_chatos
+Group=_chatos
+WorkingDirectory=/usr/local/share/chatos
+ExecStartPre=/bin/mkdir -p /var/chatos/logs /var/chatos/run /var/chatos/sessions
+ExecStart=/usr/local/share/chatos/venv/bin/python -m src --serve --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs --home-dir /home/agent01 --static-dir /usr/local/share/chatos/ui/dist --cli-path /home/agent01/.npm-global/bin/claude
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=60
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/chatos /tmp
+ReadOnlyPaths=/etc/chatos /usr/local/share/chatos
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

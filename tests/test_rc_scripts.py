@@ -1,323 +1,442 @@
-"""Tests for the ChatOS OpenBSD rc.d service scripts (Step 16).
+"""Tests for ChatOS systemd service units (deploy/systemd/).
 
-Structural validation — parse the scripts as text and verify required
-rc.d conventions are followed. No actual service start/stop is attempted.
+Structural validation -- parse the unit files as INI and verify required
+systemd conventions, dependency ordering, hardening, and kiosk script
+references.  No actual service start/stop is attempted.
 """
 
-import re
-import shutil
-import subprocess
+import configparser
+import os
 from pathlib import Path
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
 PROJECT_ROOT = Path(__file__).parent.parent
-AGENT_SCRIPT = PROJECT_ROOT / "deploy" / "rc.d" / "chatos_agent"
-UI_SCRIPT = PROJECT_ROOT / "deploy" / "rc.d" / "chatos_ui"
-RC_CONF_EXAMPLE = PROJECT_ROOT / "deploy" / "rc.d" / "rc.conf.local.example"
+SYSTEMD_DIR = PROJECT_ROOT / "deploy" / "systemd"
+KIOSK_DIR = PROJECT_ROOT / "deploy" / "kiosk"
+AGENT_SERVICE = SYSTEMD_DIR / "chatos-agent.service"
+UI_SERVICE = SYSTEMD_DIR / "chatos-ui.service"
+README = SYSTEMD_DIR / "README.md"
 
 
-def _read_script(path: Path) -> str:
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_unit(path: Path) -> configparser.ConfigParser:
+    """Parse a systemd unit file into a ConfigParser.
+
+    systemd unit files are INI-style so ConfigParser works directly.
+    Interpolation is disabled to avoid issues with ``%`` specifiers.
+    """
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(path)
+    return parser
+
+
+def _read_text(path: Path) -> str:
     return path.read_text()
 
 
-def _lines(path: Path) -> list[str]:
-    return path.read_text().splitlines()
+# ===========================================================================
+# TestServiceFilesExist
+# ===========================================================================
 
 
-def _rc_subr_line_index(lines: list[str]) -> int:
-    """Return the line index of the `. /etc/rc.d/rc.subr` line."""
-    for i, line in enumerate(lines):
-        if line.strip() == ". /etc/rc.d/rc.subr":
-            return i
-    raise ValueError("rc.subr source not found")
+class TestServiceFilesExist:
+    """All expected files under deploy/systemd/ are present and well-formed."""
+
+    def test_systemd_directory_exists(self) -> None:
+        assert SYSTEMD_DIR.is_dir()
+
+    def test_agent_service_file_exists(self) -> None:
+        assert AGENT_SERVICE.exists(), "chatos-agent.service is missing"
+
+    def test_ui_service_file_exists(self) -> None:
+        assert UI_SERVICE.exists(), "chatos-ui.service is missing"
+
+    def test_readme_exists(self) -> None:
+        assert README.exists(), "README.md is missing from deploy/systemd/"
+
+    def test_agent_service_has_no_shebang(self) -> None:
+        """systemd units are INI files, not scripts -- must not start with #!"""
+        text = _read_text(AGENT_SERVICE)
+        assert not text.startswith("#!"), "Agent service file has a shebang line"
+
+    def test_ui_service_has_no_shebang(self) -> None:
+        text = _read_text(UI_SERVICE)
+        assert not text.startswith("#!"), "UI service file has a shebang line"
 
 
-def _find_var(lines: list[str], var: str) -> str | None:
-    """Return the value of a `var=VALUE` assignment, or None."""
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(f"{var}="):
-            return stripped.split("=", 1)[1].strip('"').strip("'")
-    return None
+# ===========================================================================
+# TestAgentServiceUnit
+# ===========================================================================
 
 
-# ---------------------------------------------------------------------------
-# TestChatosAgentScript
-# ---------------------------------------------------------------------------
+class TestAgentServiceUnit:
+    """Validate chatos-agent.service structure: [Unit], [Service], [Install]."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.unit = _parse_unit(AGENT_SERVICE)
+        self.text = _read_text(AGENT_SERVICE)
+
+    # -- [Unit] section -----------------------------------------------------
+
+    def test_has_unit_section(self) -> None:
+        assert self.unit.has_section("Unit")
+
+    def test_description_mentions_chatos_and_agent(self) -> None:
+        desc = self.unit.get("Unit", "Description")
+        assert "ChatOS" in desc
+        assert "agent" in desc.lower()
+
+    def test_after_network_online(self) -> None:
+        after = self.unit.get("Unit", "After")
+        assert "network-online.target" in after
+
+    def test_wants_network_online(self) -> None:
+        wants = self.unit.get("Unit", "Wants")
+        assert "network-online.target" in wants
+
+    # -- [Service] section --------------------------------------------------
+
+    def test_has_service_section(self) -> None:
+        assert self.unit.has_section("Service")
+
+    def test_type_is_simple(self) -> None:
+        assert self.unit.get("Service", "Type") == "simple"
+
+    def test_user_is_chatos(self) -> None:
+        assert self.unit.get("Service", "User") == "_chatos"
+
+    def test_group_is_chatos(self) -> None:
+        assert self.unit.get("Service", "Group") == "_chatos"
+
+    def test_working_directory_is_share_chatos(self) -> None:
+        wd = self.unit.get("Service", "WorkingDirectory")
+        assert wd == "/usr/local/share/chatos"
+
+    def test_exec_start_uses_venv_python(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert cmd.startswith("/usr/local/share/chatos/venv/bin/python")
+
+    def test_exec_start_has_serve_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--serve" in cmd
+
+    def test_exec_start_has_rules_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--rules /etc/chatos/rules.toml" in cmd
+
+    def test_exec_start_has_log_dir_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--log-dir /var/chatos/logs" in cmd
+
+    def test_exec_start_has_home_dir_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--home-dir" in cmd
+
+    def test_exec_start_has_static_dir_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--static-dir" in cmd
+
+    def test_exec_start_has_cli_path_flag(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "--cli-path" in cmd
+
+    def test_exec_start_pre_creates_runtime_directories(self) -> None:
+        pre = self.unit.get("Service", "ExecStartPre")
+        assert "mkdir" in pre
+        for d in ("/var/chatos/logs", "/var/chatos/run", "/var/chatos/sessions"):
+            assert d in pre, f"ExecStartPre does not create {d}"
+
+    def test_restart_policy_is_on_failure(self) -> None:
+        assert self.unit.get("Service", "Restart") == "on-failure"
+
+    def test_restart_sec_is_positive(self) -> None:
+        val = int(self.unit.get("Service", "RestartSec"))
+        assert val > 0
+
+    def test_timeout_start_sec_is_at_least_30(self) -> None:
+        val = int(self.unit.get("Service", "TimeoutStartSec"))
+        assert val >= 30
+
+    def test_timeout_stop_sec_is_at_least_30(self) -> None:
+        val = int(self.unit.get("Service", "TimeoutStopSec"))
+        assert val >= 30
+
+    # -- [Install] section --------------------------------------------------
+
+    def test_has_install_section(self) -> None:
+        assert self.unit.has_section("Install")
+
+    def test_wanted_by_multi_user_target(self) -> None:
+        assert "multi-user.target" in self.unit.get("Install", "WantedBy")
 
 
-class TestChatosAgentScript:
-    def test_shebang(self) -> None:
-        lines = _lines(AGENT_SCRIPT)
-        assert lines[0] == "#!/bin/ksh"
-
-    def test_daemon_points_to_venv_python(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon")
-        assert val is not None
-        assert val == "/usr/local/share/chatos/venv/bin/python"
-
-    def test_daemon_flags_contains_serve(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon_flags")
-        assert val is not None
-        assert "--serve" in val
-
-    def test_daemon_flags_contains_rules(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon_flags")
-        assert val is not None
-        assert "--rules /etc/chatos/rules.toml" in val
-
-    def test_daemon_flags_contains_log_dir(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon_flags")
-        assert val is not None
-        assert "--log-dir /var/chatos/logs" in val
-
-    def test_daemon_user_is_chatos(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon_user")
-        assert val == "_chatos"
-
-    def test_daemon_execdir_set(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "daemon_execdir")
-        assert val == "/usr/local/share/chatos"
-
-    def test_sources_rc_subr(self) -> None:
-        text = _read_script(AGENT_SCRIPT)
-        assert ". /etc/rc.d/rc.subr" in text
-
-    def test_pexp_after_rc_subr(self) -> None:
-        lines = _lines(AGENT_SCRIPT)
-        subr_idx = _rc_subr_line_index(lines)
-        pexp_indices = [i for i, l in enumerate(lines) if l.strip().startswith("pexp=")]
-        assert len(pexp_indices) == 1
-        assert pexp_indices[0] > subr_idx
-
-    def test_rc_bg_yes(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "rc_bg")
-        assert val == "YES"
-
-    def test_rc_reload_no(self) -> None:
-        val = _find_var(_lines(AGENT_SCRIPT), "rc_reload")
-        assert val == "NO"
-
-    def test_rc_pre_creates_directories(self) -> None:
-        text = _read_script(AGENT_SCRIPT)
-        assert "rc_pre()" in text
-        assert "/var/chatos/logs" in text
-        assert "/var/chatos/run" in text
-        assert "/var/chatos/sessions" in text
-
-    def test_last_line_is_rc_cmd(self) -> None:
-        lines = _lines(AGENT_SCRIPT)
-        non_empty = [l for l in lines if l.strip()]
-        assert non_empty[-1].strip() == "rc_cmd $1"
-
-    @pytest.mark.skipif(not shutil.which("ksh"), reason="ksh not available")
-    def test_ksh_syntax_valid(self) -> None:
-        result = subprocess.run(
-            ["ksh", "-n", str(AGENT_SCRIPT)],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"ksh syntax error: {result.stderr}"
+# ===========================================================================
+# TestAgentServiceHardening
+# ===========================================================================
 
 
-# ---------------------------------------------------------------------------
-# TestChatosUiScript
-# ---------------------------------------------------------------------------
+class TestAgentServiceHardening:
+    """Security hardening directives in chatos-agent.service."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.unit = _parse_unit(AGENT_SERVICE)
+        self.text = _read_text(AGENT_SERVICE)
+
+    def test_hardening_comment_present(self) -> None:
+        """The unit should have a comment marking the hardening section."""
+        assert "hardening" in self.text.lower()
+
+    def test_no_new_privileges(self) -> None:
+        val = self.unit.get("Service", "NoNewPrivileges")
+        assert val.lower() == "true"
+
+    def test_protect_system_strict(self) -> None:
+        assert self.unit.get("Service", "ProtectSystem") == "strict"
+
+    def test_protect_home_read_only(self) -> None:
+        assert self.unit.get("Service", "ProtectHome") == "read-only"
+
+    def test_read_write_paths_includes_var_chatos(self) -> None:
+        val = self.unit.get("Service", "ReadWritePaths")
+        assert "/var/chatos" in val
+
+    def test_read_only_paths_includes_etc_chatos(self) -> None:
+        val = self.unit.get("Service", "ReadOnlyPaths")
+        assert "/etc/chatos" in val
+
+    def test_read_only_paths_includes_share_chatos(self) -> None:
+        val = self.unit.get("Service", "ReadOnlyPaths")
+        assert "/usr/local/share/chatos" in val
 
 
-class TestChatosUiScript:
-    def test_shebang(self) -> None:
-        lines = _lines(UI_SCRIPT)
-        assert lines[0] == "#!/bin/ksh"
-
-    def test_daemon_points_to_launch_kiosk(self) -> None:
-        val = _find_var(_lines(UI_SCRIPT), "daemon")
-        assert val is not None
-        assert val == "/usr/local/share/chatos/deploy/kiosk/launch-kiosk.sh"
-
-    def test_no_daemon_user(self) -> None:
-        """chatos_ui must NOT set daemon_user — runs as root, drops privs internally."""
-        val = _find_var(_lines(UI_SCRIPT), "daemon_user")
-        assert val is None
-
-    def test_sources_rc_subr(self) -> None:
-        text = _read_script(UI_SCRIPT)
-        assert ". /etc/rc.d/rc.subr" in text
-
-    def test_pexp_contains_xinit(self) -> None:
-        val = _find_var(_lines(UI_SCRIPT), "pexp")
-        assert val is not None
-        assert "xinit" in val
-
-    def test_pexp_after_rc_subr(self) -> None:
-        lines = _lines(UI_SCRIPT)
-        subr_idx = _rc_subr_line_index(lines)
-        pexp_indices = [i for i, l in enumerate(lines) if l.strip().startswith("pexp=")]
-        assert len(pexp_indices) == 1
-        assert pexp_indices[0] > subr_idx
-
-    def test_rc_bg_yes(self) -> None:
-        val = _find_var(_lines(UI_SCRIPT), "rc_bg")
-        assert val == "YES"
-
-    def test_rc_reload_no(self) -> None:
-        val = _find_var(_lines(UI_SCRIPT), "rc_reload")
-        assert val == "NO"
-
-    def test_rc_pre_checks_port(self) -> None:
-        text = _read_script(UI_SCRIPT)
-        assert "rc_pre()" in text
-        assert "nc -z" in text
-        assert "8400" in text
-
-    def test_rc_pre_retries_with_timeout(self) -> None:
-        """rc_pre must retry the port check to handle the rc_bg race."""
-        text = _read_script(UI_SCRIPT)
-        assert "while" in text, "rc_pre should use a retry loop"
-        assert "sleep" in text, "rc_pre should sleep between retries"
-
-    def test_rc_pre_logs_failure(self) -> None:
-        text = _read_script(UI_SCRIPT)
-        assert "logger" in text
-        assert "chatos_ui" in text
-
-    def test_rc_post_calls_reset_console(self) -> None:
-        text = _read_script(UI_SCRIPT)
-        assert "rc_post()" in text
-        assert "reset-console.sh" in text
-
-    def test_last_line_is_rc_cmd(self) -> None:
-        lines = _lines(UI_SCRIPT)
-        non_empty = [l for l in lines if l.strip()]
-        assert non_empty[-1].strip() == "rc_cmd $1"
-
-    @pytest.mark.skipif(not shutil.which("ksh"), reason="ksh not available")
-    def test_ksh_syntax_valid(self) -> None:
-        result = subprocess.run(
-            ["ksh", "-n", str(UI_SCRIPT)],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"ksh syntax error: {result.stderr}"
+# ===========================================================================
+# TestUiServiceUnit
+# ===========================================================================
 
 
-# ---------------------------------------------------------------------------
-# TestPexpPatterns
-# ---------------------------------------------------------------------------
+class TestUiServiceUnit:
+    """Validate chatos-ui.service structure and directives."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.unit = _parse_unit(UI_SERVICE)
+        self.text = _read_text(UI_SERVICE)
+
+    # -- [Unit] section -- dependency on agent ------------------------------
+
+    def test_has_unit_section(self) -> None:
+        assert self.unit.has_section("Unit")
+
+    def test_description_mentions_chatos(self) -> None:
+        desc = self.unit.get("Unit", "Description")
+        assert "ChatOS" in desc
+
+    def test_description_mentions_ui_or_kiosk(self) -> None:
+        desc = self.unit.get("Unit", "Description").lower()
+        assert "ui" in desc or "kiosk" in desc
+
+    def test_after_chatos_agent(self) -> None:
+        """UI must start after the agent service."""
+        after = self.unit.get("Unit", "After")
+        assert "chatos-agent.service" in after
+
+    def test_requires_chatos_agent(self) -> None:
+        """UI must hard-depend on the agent service."""
+        requires = self.unit.get("Unit", "Requires")
+        assert "chatos-agent.service" in requires
+
+    # -- [Service] section --------------------------------------------------
+
+    def test_has_service_section(self) -> None:
+        assert self.unit.has_section("Service")
+
+    def test_type_is_simple(self) -> None:
+        assert self.unit.get("Service", "Type") == "simple"
+
+    def test_no_user_directive(self) -> None:
+        """UI service should not set User -- kiosk launch manages privileges."""
+        assert not self.unit.has_option("Service", "User")
+
+    def test_exec_start_references_launch_kiosk(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "launch-kiosk.sh" in cmd
+
+    def test_exec_start_uses_kiosk_directory(self) -> None:
+        cmd = self.unit.get("Service", "ExecStart")
+        assert "/usr/local/share/chatos/deploy/kiosk/" in cmd
+
+    # -- ExecStartPre: port check ------------------------------------------
+
+    def test_exec_start_pre_checks_port_8400(self) -> None:
+        pre = self.unit.get("Service", "ExecStartPre")
+        assert "8400" in pre
+        assert "nc" in pre
+
+    def test_exec_start_pre_has_timeout(self) -> None:
+        """Port check must have a timeout to avoid hanging forever."""
+        pre = self.unit.get("Service", "ExecStartPre")
+        assert "timeout" in pre
+
+    def test_exec_start_pre_has_retry_loop(self) -> None:
+        """Port check retries in a loop to handle the agent startup race."""
+        pre = self.unit.get("Service", "ExecStartPre")
+        assert "while" in pre
+        assert "sleep" in pre
+
+    def test_exec_start_pre_logs_failure_message(self) -> None:
+        """Port check outputs a meaningful message when it gives up."""
+        pre = self.unit.get("Service", "ExecStartPre")
+        assert "echo" in pre or "logger" in pre
+
+    # -- ExecStopPost: console reset ----------------------------------------
+
+    def test_exec_stop_post_calls_reset_console(self) -> None:
+        post = self.unit.get("Service", "ExecStopPost")
+        assert "reset-console.sh" in post
+
+    def test_exec_stop_post_uses_kiosk_directory(self) -> None:
+        post = self.unit.get("Service", "ExecStopPost")
+        assert "/usr/local/share/chatos/deploy/kiosk/" in post
+
+    # -- Restart / timeout --------------------------------------------------
+
+    def test_restart_policy_is_on_failure(self) -> None:
+        assert self.unit.get("Service", "Restart") == "on-failure"
+
+    def test_restart_sec_is_positive(self) -> None:
+        val = int(self.unit.get("Service", "RestartSec"))
+        assert val > 0
+
+    def test_timeout_start_sec_is_at_least_30(self) -> None:
+        val = int(self.unit.get("Service", "TimeoutStartSec"))
+        assert val >= 30
+
+    def test_timeout_stop_sec_is_at_least_30(self) -> None:
+        val = int(self.unit.get("Service", "TimeoutStopSec"))
+        assert val >= 30
+
+    # -- [Install] section --------------------------------------------------
+
+    def test_has_install_section(self) -> None:
+        assert self.unit.has_section("Install")
+
+    def test_wanted_by_multi_user_target(self) -> None:
+        assert "multi-user.target" in self.unit.get("Install", "WantedBy")
 
 
-class TestPexpPatterns:
-    """Verify that pexp regex patterns match the expected process strings.
-
-    The pexp values in rc.d scripts use ${daemon} which ksh expands at runtime.
-    We resolve the variable here by substituting the daemon value from the script.
-    """
-
-    def _extract_pexp(self, path: Path) -> str:
-        lines = _lines(path)
-        pexp_raw = _find_var(lines, "pexp")
-        assert pexp_raw is not None
-        # Resolve ${daemon} references using the daemon= value from the same script
-        daemon_val = _find_var(lines, "daemon")
-        if daemon_val and "${daemon}" in pexp_raw:
-            pexp_raw = pexp_raw.replace("${daemon}", re.escape(daemon_val))
-        return pexp_raw
-
-    def test_agent_pexp_matches_default_command(self) -> None:
-        pexp = self._extract_pexp(AGENT_SCRIPT)
-        cmd = "/usr/local/share/chatos/venv/bin/python -m src --serve --rules /etc/chatos/rules.toml --log-dir /var/chatos/logs"
-        assert re.search(pexp, cmd)
-
-    def test_agent_pexp_matches_with_extra_flags(self) -> None:
-        pexp = self._extract_pexp(AGENT_SCRIPT)
-        cmd = "/usr/local/share/chatos/venv/bin/python -m src --serve --port 9000 --model opus --rules /etc/chatos/rules.toml"
-        assert re.search(pexp, cmd)
-
-    def test_agent_pexp_no_match_unrelated_python(self) -> None:
-        pexp = self._extract_pexp(AGENT_SCRIPT)
-        cmd = "/usr/bin/python3 -m http.server 8080"
-        assert not re.search(pexp, cmd)
-
-    def test_agent_pexp_no_match_without_serve(self) -> None:
-        pexp = self._extract_pexp(AGENT_SCRIPT)
-        cmd = "/usr/local/share/chatos/venv/bin/python -m src --rules /etc/chatos/rules.toml"
-        assert not re.search(pexp, cmd)
-
-    def test_ui_pexp_matches_expected_xinit(self) -> None:
-        pexp = self._extract_pexp(UI_SCRIPT)
-        cmd = "xinit /usr/local/share/chatos/deploy/kiosk/xinitrc -- :0 vt05"
-        assert re.search(pexp, cmd)
-
-    def test_ui_pexp_no_match_unrelated_xinit(self) -> None:
-        pexp = self._extract_pexp(UI_SCRIPT)
-        cmd = "xinit /home/user/.xinitrc"
-        assert not re.search(pexp, cmd)
+# ===========================================================================
+# TestKioskScriptsExist
+# ===========================================================================
 
 
-# ---------------------------------------------------------------------------
-# TestScriptPaths
-# ---------------------------------------------------------------------------
-
-
-class TestScriptPaths:
-    """Verify that all paths referenced by the scripts exist in the project tree."""
-
-    def test_agent_script_exists(self) -> None:
-        assert AGENT_SCRIPT.exists()
-
-    def test_ui_script_exists(self) -> None:
-        assert UI_SCRIPT.exists()
+class TestKioskScriptsExist:
+    """Kiosk scripts referenced by the UI service must exist and be executable."""
 
     def test_launch_kiosk_exists(self) -> None:
-        """The daemon path in chatos_ui must exist in the project."""
-        path = PROJECT_ROOT / "deploy" / "kiosk" / "launch-kiosk.sh"
-        assert path.exists()
+        assert (KIOSK_DIR / "launch-kiosk.sh").exists()
 
     def test_xinitrc_exists(self) -> None:
-        path = PROJECT_ROOT / "deploy" / "kiosk" / "xinitrc"
-        assert path.exists()
+        assert (KIOSK_DIR / "xinitrc").exists()
 
     def test_reset_console_exists(self) -> None:
-        path = PROJECT_ROOT / "deploy" / "kiosk" / "reset-console.sh"
-        assert path.exists()
+        assert (KIOSK_DIR / "reset-console.sh").exists()
 
-    def test_agent_script_is_executable(self) -> None:
-        import os
-        assert os.access(AGENT_SCRIPT, os.X_OK)
+    def test_launch_kiosk_is_executable(self) -> None:
+        assert os.access(KIOSK_DIR / "launch-kiosk.sh", os.X_OK)
 
-    def test_ui_script_is_executable(self) -> None:
-        import os
-        assert os.access(UI_SCRIPT, os.X_OK)
+    def test_reset_console_is_executable(self) -> None:
+        assert os.access(KIOSK_DIR / "reset-console.sh", os.X_OK)
+
+    def test_agent_service_references_no_kiosk_scripts(self) -> None:
+        """The agent service must not reference any kiosk scripts."""
+        text = _read_text(AGENT_SERVICE)
+        assert "launch-kiosk" not in text
+        assert "reset-console" not in text
+
+    def test_ui_service_references_launch_kiosk(self) -> None:
+        """The UI service ExecStart must point to the kiosk launch script."""
+        unit = _parse_unit(UI_SERVICE)
+        cmd = unit.get("Service", "ExecStart")
+        assert "launch-kiosk.sh" in cmd
+
+    def test_ui_service_references_reset_console(self) -> None:
+        """The UI service ExecStopPost must point to the console reset script."""
+        unit = _parse_unit(UI_SERVICE)
+        post = unit.get("Service", "ExecStopPost")
+        assert "reset-console.sh" in post
 
 
-# ---------------------------------------------------------------------------
-# TestRcConfExample
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# TestServiceDependencyOrdering
+# ===========================================================================
 
 
-class TestRcConfExample:
-    def test_file_exists(self) -> None:
-        assert RC_CONF_EXAMPLE.exists()
+class TestServiceDependencyOrdering:
+    """Cross-service dependency relationships are correct."""
 
-    def test_pkg_scripts_agent_before_ui(self) -> None:
-        text = RC_CONF_EXAMPLE.read_text()
-        match = re.search(r'pkg_scripts="([^"]+)"', text)
-        assert match is not None
-        services = match.group(1).split()
-        agent_idx = services.index("chatos_agent")
-        ui_idx = services.index("chatos_ui")
-        assert agent_idx < ui_idx
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.agent = _parse_unit(AGENT_SERVICE)
+        self.ui = _parse_unit(UI_SERVICE)
 
-    def test_agent_timeout_present(self) -> None:
-        text = RC_CONF_EXAMPLE.read_text()
-        assert "chatos_agent_timeout=" in text
+    def test_ui_after_agent(self) -> None:
+        after = self.ui.get("Unit", "After")
+        assert "chatos-agent.service" in after
 
-    def test_ui_timeout_present(self) -> None:
-        text = RC_CONF_EXAMPLE.read_text()
-        assert "chatos_ui_timeout=" in text
+    def test_ui_requires_agent(self) -> None:
+        requires = self.ui.get("Unit", "Requires")
+        assert "chatos-agent.service" in requires
 
-    def test_flag_override_documented(self) -> None:
-        """Example should show how to override daemon_flags."""
-        text = RC_CONF_EXAMPLE.read_text()
-        assert "chatos_agent_flags=" in text
+    def test_agent_does_not_depend_on_ui(self) -> None:
+        """Agent runs independently -- must not reference the UI service."""
+        after = self.agent.get("Unit", "After", fallback="")
+        wants = self.agent.get("Unit", "Wants", fallback="")
+        requires = self.agent.get("Unit", "Requires", fallback="")
+        combined = after + wants + requires
+        assert "chatos-ui" not in combined
+
+    def test_both_target_multi_user(self) -> None:
+        agent_target = self.agent.get("Install", "WantedBy")
+        ui_target = self.ui.get("Install", "WantedBy")
+        assert agent_target == ui_target == "multi-user.target"
+
+
+# ===========================================================================
+# TestReadme
+# ===========================================================================
+
+
+class TestReadme:
+    """The systemd README documents key operational information."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.text = _read_text(README)
+
+    def test_mentions_agent_service(self) -> None:
+        assert "chatos-agent.service" in self.text
+
+    def test_mentions_ui_service(self) -> None:
+        assert "chatos-ui.service" in self.text
+
+    def test_mentions_override_mechanism(self) -> None:
+        """README should explain how to customize unit flags via overrides."""
+        assert "systemctl edit" in self.text or "override" in self.text.lower()
+
+    def test_mentions_env_file(self) -> None:
+        """README should reference /etc/chatos/env for the API key."""
+        assert "/etc/chatos/env" in self.text
+
+    def test_mentions_installation(self) -> None:
+        assert "install" in self.text.lower()

@@ -83,11 +83,8 @@ class KioskConfigLoader:
         - --disable-gpu if chromium.disable_gpu is true
         - Extra flags from chromium.extra_flags (space-separated)
 
-        Note: --user-data-dir is intentionally omitted. Chromium's OpenBSD
-        unveil() sandbox only unveils $HOME/.config/chromium (the default
-        profile path). Custom --user-data-dir paths get ENOENT from unveil.
-        Instead, we set HOME to the desired data dir so Chromium uses
-        $HOME/.config/chromium naturally.
+        Note: --user-data-dir is intentionally omitted. We set HOME to the
+        desired data dir so Chromium uses $HOME/.config/chromium naturally.
         """
         flags = list(CHROMIUM_KIOSK_FLAGS)
 

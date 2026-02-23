@@ -12,13 +12,13 @@ maintenance, and monitoring tasks.
 
 ## Environment
 
-- Operating system: OpenBSD (amd64)
-- Shell: /bin/ksh (POSIX-compatible)
-- Package manager: pkg_add / pkg_delete / pkg_info
-- Service manager: rcctl (not systemd)
-- Privilege escalation: doas (not sudo)
-- System info: sysctl (no /proc filesystem)
-- Firewall: pf (packet filter)
+- Operating system: Ubuntu Linux
+- Shell: /bin/bash
+- Package manager: apt / dpkg
+- Service manager: systemctl (systemd)
+- Privilege escalation: sudo
+- System info: sysctl, /proc filesystem
+- Firewall: ufw / iptables
 
 ## Tools
 

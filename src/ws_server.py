@@ -277,7 +277,7 @@ def main() -> None:
     )
     try:
         sandbox.apply()
-        print("Sandbox applied: pledge + unveil active", file=sys.stderr)
+        print("Sandbox applied: Landlock active", file=sys.stderr)
     except Exception as exc:
         print(f"Warning: Sandbox not applied: {exc}", file=sys.stderr)
 

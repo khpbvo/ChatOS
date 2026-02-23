@@ -16,11 +16,11 @@ hostname = "test-host"
 
 [permissions]
 safe_patterns = [
-    "cat ", "ls ", "uptime", "pkg_info", "ps aux",
+    "cat ", "ls ", "uptime", "dpkg -l", "ps aux",
 ]
 
 confirm_patterns = [
-    "pkg_add ", "rcctl ", "doas ", "mv ",
+    "apt install ", "systemctl ", "sudo ", "mv ",
 ]
 
 forbidden_patterns = [
@@ -32,8 +32,8 @@ forbidden_patterns = [
 ]
 
 forbidden_write_paths = [
-    "/etc/master.passwd",
-    "/etc/doas.conf",
+    "/etc/shadow",
+    "/etc/sudoers",
     "/etc/chatos/rules.toml",
 ]
 
@@ -64,9 +64,9 @@ def engine_from_config() -> RulesEngine:
         meta=RulesMeta(version="0.1.0", hostname="test"),
         permissions=Permissions(
             safe_patterns=["cat ", "ls ", "uptime"],
-            confirm_patterns=["pkg_add ", "mv "],
+            confirm_patterns=["apt install ", "mv "],
             forbidden_patterns=["rm -rf /", "halt"],
-            forbidden_write_paths=["/etc/master.passwd"],
+            forbidden_write_paths=["/etc/shadow"],
         ),
         resources=Resources(max_concurrent_ops=5, session_timeout_minutes=30),
     )
@@ -84,9 +84,9 @@ class TestRulesLoading:
     def test_load_permissions(self, engine: RulesEngine) -> None:
         p = engine.config.permissions
         assert "cat " in p.safe_patterns
-        assert "pkg_add " in p.confirm_patterns
+        assert "apt install " in p.confirm_patterns
         assert "rm -rf /" in p.forbidden_patterns
-        assert "/etc/master.passwd" in p.forbidden_write_paths
+        assert "/etc/shadow" in p.forbidden_write_paths
 
     def test_load_resources(self, engine: RulesEngine) -> None:
         assert engine.config.resources.max_concurrent_ops == 3
@@ -137,8 +137,8 @@ class TestSafePatterns:
         assert d.action == Action.ALLOW
 
     def test_no_prefix_collision(self, engine: RulesEngine) -> None:
-        """'pkg_info' should not match 'pkg_info_bad_command'."""
-        d = engine.check_command("pkg_info_bad_command")
+        """'dpkg -l' should not match 'dpkg -la_bad_command'."""
+        d = engine.check_command("dpkg -la_bad_command")
         assert d.action != Action.ALLOW
 
 
@@ -147,16 +147,16 @@ class TestSafePatterns:
 
 class TestConfirmPatterns:
     def test_confirm_command(self, engine: RulesEngine) -> None:
-        d = engine.check_command("pkg_add nginx")
+        d = engine.check_command("apt install nginx")
         assert d.action == Action.CONFIRM
-        assert d.matched_pattern == "pkg_add "
+        assert d.matched_pattern == "apt install "
 
-    def test_confirm_rcctl(self, engine: RulesEngine) -> None:
-        d = engine.check_command("rcctl enable nginx")
+    def test_confirm_systemctl(self, engine: RulesEngine) -> None:
+        d = engine.check_command("systemctl restart nginx")
         assert d.action == Action.CONFIRM
 
-    def test_confirm_doas(self, engine: RulesEngine) -> None:
-        d = engine.check_command("doas pkg_add vim")
+    def test_confirm_sudo(self, engine: RulesEngine) -> None:
+        d = engine.check_command("sudo apt install vim")
         assert d.action == Action.CONFIRM
 
     def test_confirm_mv(self, engine: RulesEngine) -> None:
@@ -247,12 +247,12 @@ class TestDefaultDeny:
 
 class TestWritePaths:
     def test_forbidden_write_path(self, engine: RulesEngine) -> None:
-        d = engine.check_write_path("/etc/master.passwd")
+        d = engine.check_write_path("/etc/shadow")
         assert d.action == Action.DENY
-        assert d.matched_pattern == "/etc/master.passwd"
+        assert d.matched_pattern == "/etc/shadow"
 
-    def test_forbidden_doas_conf(self, engine: RulesEngine) -> None:
-        d = engine.check_write_path("/etc/doas.conf")
+    def test_forbidden_sudoers(self, engine: RulesEngine) -> None:
+        d = engine.check_write_path("/etc/sudoers")
         assert d.action == Action.DENY
 
     def test_forbidden_rules_toml(self, engine: RulesEngine) -> None:
@@ -269,7 +269,7 @@ class TestWritePaths:
 
     def test_path_traversal_blocked(self, engine: RulesEngine) -> None:
         """Path normalization catches traversal attempts."""
-        d = engine.check_write_path("/etc/../etc/master.passwd")
+        d = engine.check_write_path("/etc/../etc/shadow")
         assert d.action == Action.DENY
 
     def test_normalized_path(self, engine: RulesEngine) -> None:
@@ -286,15 +286,15 @@ class TestToolDispatch:
         assert d.action == Action.ALLOW
 
     def test_write_tool_dispatches_to_check_write(self, engine: RulesEngine) -> None:
-        d = engine.check_tool_use("Write", {"file_path": "/etc/master.passwd"})
+        d = engine.check_tool_use("Write", {"file_path": "/etc/shadow"})
         assert d.action == Action.DENY
 
     def test_edit_tool_dispatches_to_check_write(self, engine: RulesEngine) -> None:
-        d = engine.check_tool_use("Edit", {"file_path": "/etc/master.passwd"})
+        d = engine.check_tool_use("Edit", {"file_path": "/etc/shadow"})
         assert d.action == Action.DENY
 
     def test_read_tool_always_allowed(self, engine: RulesEngine) -> None:
-        d = engine.check_tool_use("Read", {"file_path": "/etc/master.passwd"})
+        d = engine.check_tool_use("Read", {"file_path": "/etc/shadow"})
         assert d.action == Action.ALLOW
 
     def test_glob_tool_always_allowed(self, engine: RulesEngine) -> None:
@@ -314,7 +314,7 @@ class TestToolDispatch:
         assert d.action == Action.ALLOW
 
     def test_bash_confirm_command(self, engine: RulesEngine) -> None:
-        d = engine.check_tool_use("Bash", {"command": "pkg_add nginx"})
+        d = engine.check_tool_use("Bash", {"command": "apt install nginx"})
         assert d.action == Action.CONFIRM
 
     def test_bash_forbidden_command(self, engine: RulesEngine) -> None:
