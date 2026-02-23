@@ -1,4 +1,4 @@
-"""Tests for ChatOS sandbox profiles (Step 18)."""
+"""Tests for ChatOS sandbox profiles."""
 
 import subprocess
 import sys
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.sandbox import VALID_PROMISES, Sandbox, _IS_OPENBSD
+from src.sandbox import Sandbox, _IS_LINUX
 from src.sandbox_profiles import (
     _COMMON_PROMISES,
     _EXEC_PROMISES,
@@ -38,8 +38,8 @@ class TestServerProfile:
     def test_has_common_unveils(self) -> None:
         sb = build_server_sandbox()
         paths = {path for path, _ in sb.unveiled_paths}
-        for expected in ("/etc", "/usr", "/bin", "/sbin", "/dev/null",
-                         "/dev/urandom", "/tmp", "/var/chatos"):
+        for expected in ("/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+                         "/dev/null", "/dev/urandom", "/tmp", "/var/chatos"):
             assert expected in paths, f"Missing unveil: {expected}"
 
     def test_home_dir_unveiled_when_set(self) -> None:
@@ -86,11 +86,8 @@ class TestServerProfile:
         paths = {path for path, _ in sb.unveiled_paths}
         assert "/opt/myapp" in paths
 
-    @patch("src.sandbox._raw_pledge", return_value=0)
-    @patch("src.sandbox._raw_unveil", return_value=0)
-    def test_apply_succeeds_with_mocked_syscalls(
-        self, mock_unveil: MagicMock, mock_pledge: MagicMock
-    ) -> None:
+    def test_apply_succeeds_when_not_on_linux(self) -> None:
+        """On non-Linux, apply() completes without error (no-op)."""
         sb = build_server_sandbox(home_dir="/home/agent01")
         sb.apply()
         assert sb.is_pledged is True
@@ -126,8 +123,8 @@ class TestCliProfile:
     def test_has_common_unveils(self) -> None:
         sb = build_cli_sandbox()
         paths = {path for path, _ in sb.unveiled_paths}
-        for expected in ("/etc", "/usr", "/bin", "/sbin", "/dev/null",
-                         "/dev/urandom", "/tmp", "/var/chatos"):
+        for expected in ("/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+                         "/dev/null", "/dev/urandom", "/tmp", "/var/chatos"):
             assert expected in paths
 
     def test_no_home_dir_unveil(self) -> None:
@@ -141,11 +138,8 @@ class TestCliProfile:
         resolved = str(__import__("pathlib").Path("/tmp/chatos-logs").resolve())
         assert resolved in paths
 
-    @patch("src.sandbox._raw_pledge", return_value=0)
-    @patch("src.sandbox._raw_unveil", return_value=0)
-    def test_apply_succeeds_with_mocked_syscalls(
-        self, mock_unveil: MagicMock, mock_pledge: MagicMock
-    ) -> None:
+    def test_apply_succeeds_when_not_on_linux(self) -> None:
+        """On non-Linux, apply() completes without error (no-op)."""
         sb = build_cli_sandbox()
         sb.apply()
         assert sb.is_pledged is True
@@ -159,19 +153,12 @@ class TestExecPromises:
     def test_contains_prot_exec(self) -> None:
         assert "prot_exec" in _EXEC_PROMISES
 
-    def test_excludes_dangerous_promises(self) -> None:
-        dangerous = {"settime", "disklabel", "pf", "drm", "vmm",
-                      "route", "wroute", "audio", "video", "bpf",
-                      "mcast", "dpath", "tape", "error"}
-        for p in dangerous:
-            assert p not in _EXEC_PROMISES, f"Dangerous promise in exec: {p}"
-
-    def test_all_names_valid(self) -> None:
-        for p in _EXEC_PROMISES:
-            assert p in VALID_PROMISES, f"Typo in exec promise: {p}"
-
     def test_is_tuple(self) -> None:
         assert isinstance(_EXEC_PROMISES, tuple)
+
+    def test_contains_core_promises(self) -> None:
+        for p in ("stdio", "rpath", "wpath", "proc", "exec"):
+            assert p in _EXEC_PROMISES, f"Missing exec promise: {p}"
 
 
 # -- TestIntegrationPoints --
@@ -255,7 +242,7 @@ class TestIntegrationPoints:
 
     def test_server_continues_on_sandbox_failure(self) -> None:
         mock_sb = MagicMock()
-        mock_sb.apply.side_effect = OSError("pledge failed")
+        mock_sb.apply.side_effect = OSError("landlock failed")
         with (
             patch("src.ws_server.parse_args") as mock_args,
             patch("src.ws_server.RulesEngine") as MockRules,
@@ -288,7 +275,7 @@ class TestIntegrationPoints:
 
     def test_cli_continues_on_sandbox_failure(self) -> None:
         mock_sb = MagicMock()
-        mock_sb.apply.side_effect = OSError("pledge failed")
+        mock_sb.apply.side_effect = OSError("landlock failed")
         with (
             patch("src.cli.parse_args") as mock_args,
             patch("src.cli.RulesEngine") as MockRules,
@@ -388,9 +375,9 @@ class TestIntegrationPoints:
 # -- TestSubprocessIntegration --
 
 
-@pytest.mark.skipif(not _IS_OPENBSD, reason="pledge/unveil only on OpenBSD")
+@pytest.mark.skipif(not _IS_LINUX, reason="Landlock only on Linux")
 class TestSubprocessIntegration:
-    """Integration tests that run real pledge/unveil in isolated subprocesses."""
+    """Integration tests that run real Landlock in isolated subprocesses."""
 
     _python = sys.executable
     _env = {"PYTHONPATH": str(__import__("pathlib").Path(__file__).resolve().parent.parent)}

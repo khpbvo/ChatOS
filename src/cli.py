@@ -38,7 +38,7 @@ DEV_PROMPTS_DIR = PROJECT_ROOT / ".claude" / "agents"
 DEV_MCP_TOML = PROJECT_ROOT / "etc" / "chatos" / "mcp.toml"
 
 BANNER = """\
-ChatOS v0.1.0 — AI-driven operating system interface for OpenBSD
+ChatOS v0.1.0 — AI-driven operating system interface for Ubuntu
 Type your message, or "exit" to quit. Ctrl+C to interrupt.
 """
 
@@ -185,7 +185,7 @@ def main() -> None:
     )
     try:
         sandbox.apply()
-        print("Sandbox applied: pledge + unveil active", file=sys.stderr)
+        print("Sandbox applied: Landlock active", file=sys.stderr)
     except Exception as exc:
         print(f"Warning: Sandbox not applied: {exc}", file=sys.stderr)
 

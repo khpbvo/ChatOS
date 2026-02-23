@@ -6,7 +6,7 @@ See `Docs/Planning.md` for build phases, milestones, and architecture decisions.
 
 ## What Is ChatOS?
 
-ChatOS is an AI-driven operating system experience for OpenBSD, delivered
+ChatOS is an AI-driven operating system experience for Ubuntu Linux, delivered
 through a kiosk web browser. The user interacts with their machine entirely
 through a chat interface — browsing the web, managing files, viewing media,
 sending email, installing apps, and performing system maintenance — all via
@@ -18,7 +18,7 @@ Two interfaces exist:
 
 ## Core Principles
 
-1. **Security first, always.** pledge() and unveil() are the outer ring. Agent SDK hooks are the inner ring.
+1. **Security first, always.** Landlock LSM and systemd hardening are the outer ring. Agent SDK hooks are the inner ring.
 2. **Every tool call passes through PreToolUse hooks** that enforce rules.toml.
 3. **The rules file is sacred.** Only root can modify /etc/chatos/rules.toml.
 4. **Separation of concerns.** _chatos_ui serves the web UI. _chatos runs the agent. They communicate via WebSocket.
@@ -62,7 +62,7 @@ cd ui && npm run dev
 │   ├── orchestrator.py             # SDK client wrapper with hooks (Orchestrator class)
 │   ├── file_server.py              # HTTP file server (local files + static UI)
 │   ├── kiosk_config.py             # Kiosk TOML parser + Chromium flag builder + shell exporter
-│   ├── sandbox.py                  # pledge(2)/unveil(2) ctypes bindings (Sandbox builder)
+│   ├── sandbox.py                  # Linux Landlock LSM ctypes bindings (Sandbox builder)
 │   ├── sandbox_profiles.py         # Pre-built sandbox profiles (server + CLI)
 │   ├── watchdog.py                 # Behavioral watchdog (anomaly detection state machine)
 │   ├── cli.py                      # CLI REPL test harness
@@ -78,8 +78,8 @@ cd ui && npm run dev
 │   ├── test_ws_server.py           # 34 tests — WebSocket server, protocol, single-conn guard, session token
 │   ├── test_file_server.py        # 40 tests — HTTP file server, path validation, token auth, MIME, static
 │   ├── test_kiosk_config.py       # 29 tests — file loading, Chromium flags, shell export, models
-│   ├── test_rc_scripts.py         # 45 tests — rc.d structure, pexp patterns, paths, rc.conf
-│   ├── test_sandbox.py            # 52 tests — pledge/unveil bindings, builder, state guards, subprocess
+│   ├── test_rc_scripts.py         # 75 tests — systemd units, service structure, paths
+│   ├── test_sandbox.py            # 52 tests — Landlock bindings, builder, state guards, subprocess
 │   ├── test_sandbox_profiles.py   # 37 tests — sandbox profiles, integration points, subprocess
 │   ├── test_watchdog.py           # 43 tests — anomaly detection, sliding windows, resets
 │   ├── test_env_loader.py        # 12 tests — env file loading, precedence, quoting, edge cases
@@ -91,15 +91,17 @@ cd ui && npm run dev
 │   ├── kiosk.conf                  # Kiosk browser settings (URL, display, Chromium flags)
 │   └── env                         # API key + env vars (root:_chatos 640, created by installer)
 ├── deploy/
-│   ├── kiosk/                      # Kiosk launch scripts (Step 15)
-│   │   ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, doas → xinit
+│   ├── kiosk/                      # Kiosk launch scripts
+│   │   ├── launch-kiosk.sh         # Entry point: DRI perms, ulimit, sudo → xinit
 │   │   ├── xinitrc                 # X session: xset, wait for server, exec Chromium
 │   │   └── reset-console.sh        # Cleanup: restore DRI/console ownership
-│   ├── install.sh                  # Idempotent installer (doas ksh deploy/install.sh)
-│   └── rc.d/                       # OpenBSD service scripts (Step 16)
-│       ├── chatos_agent            # rc.d script: agent WebSocket server
-│       ├── chatos_ui               # rc.d script: kiosk browser
-│       └── rc.conf.local.example   # Example /etc/rc.conf.local entries
+│   ├── install.sh                  # Idempotent installer (sudo bash deploy/install.sh)
+│   ├── systemd/                    # systemd service units
+│   │   ├── chatos-agent.service    # Agent WebSocket server unit
+│   │   ├── chatos-ui.service       # Kiosk browser unit (depends on agent)
+│   │   └── README.md               # Override instructions
+│   └── rc.d/                       # Legacy (kept for reference)
+│       └── rc.conf.local.example   # Old rc.conf example
 ├── Docs/
 │   └── Planning.md                 # Build plan, milestones, architecture decisions
 ├── .claude/                        # Agent SDK config (placeholders)
@@ -108,7 +110,7 @@ cd ui && npm run dev
 │   └── commands/
 ├── ui/                             # Kiosk web interface (React + Vite + TypeScript)
 │   ├── index.html                  # Vite entry HTML
-│   ├── package.json                # Node deps + @rollup/wasm-node override for OpenBSD arm64
+│   ├── package.json                # Node deps
 │   ├── vite.config.ts              # Vite config (WS proxy in dev)
 │   ├── tsconfig.json               # TypeScript config (ES2022, strict, react-jsx)
 │   └── src/
@@ -303,7 +305,7 @@ not by the SDK itself. **No API key is needed** — we use Claude account login.
 
 ### Production Setup (_chatos user)
 
-The `_chatos` user has `/sbin/nologin` — set credentials in `/etc/chatos/env`:
+The `_chatos` user has `/usr/sbin/nologin` — set credentials in `/etc/chatos/env`:
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> /etc/chatos/env
 ```
@@ -419,7 +421,7 @@ Use wildcards (`mcp__email__*`) in `allowed_tools` to allow all tools from a ser
 
 MCP server credentials live in `/etc/chatos/mcp.toml`:
 - Owned by `root:_chatos`, mode `640` (root writes, `_chatos` reads)
-- This is the standard OpenBSD pattern (same as smtpd, httpd, sshd)
+- Standard Unix file permission pattern
 - No env files, no vaults — just file permissions
 
 ```toml
@@ -521,9 +523,9 @@ Model map is in `src/orchestrator.py:MODEL_MAP`.
 
 | User | Purpose | Shell |
 |------|---------|-------|
-| agent01 | Human admin | /bin/ksh |
-| _chatos | Agent process (SDK) | /sbin/nologin |
-| _chatos_ui | Kiosk browser + web server | /sbin/nologin |
+| agent01 | Human admin | /bin/bash |
+| _chatos | Agent process (SDK) | /usr/sbin/nologin |
+| _chatos_ui | Kiosk browser + web server | /usr/sbin/nologin |
 
 ## Coding Standards
 
@@ -536,13 +538,12 @@ Model map is in `src/orchestrator.py:MODEL_MAP`.
 - **No hardcoded secrets** — auth via `claude auth login` (account) or `claude setup-token` (headless)
 - **Line length** — 100 chars (ruff config in pyproject.toml)
 
-## OpenBSD Notes
+## Ubuntu Notes
 
-- Shell is **ksh**, not bash. Scripts must be POSIX-compatible.
-- Package manager: **pkg_add / pkg_delete / pkg_info** (not apt/yum).
-- Service manager: **rcctl** (not systemd).
-- Firewall: **pf** (packet filter), config at /etc/pf.conf.
-- No /proc. System info via **sysctl**.
-- **doas** replaces sudo. Config at /etc/doas.conf.
-- Linux binaries won't work (different ELF ABI). Use OpenBSD packages.
-- _chatos has /sbin/nologin — use `doas -u _chatos` to run as that user.
+- Shell is **bash**. Deploy scripts use `#!/bin/bash`.
+- Package manager: **apt** / **dpkg** (install, remove, list).
+- Service manager: **systemctl** (systemd).
+- Firewall: **ufw** / **iptables**.
+- System info via **sysctl** and **/proc** filesystem.
+- **sudo** for privilege escalation. Config at /etc/sudoers.d/.
+- _chatos has /usr/sbin/nologin — use `sudo -u _chatos` to run as that user.

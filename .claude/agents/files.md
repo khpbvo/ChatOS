@@ -12,8 +12,8 @@ management tasks.
 
 ## Environment
 
-- Operating system: OpenBSD (amd64)
-- Shell: /bin/ksh (POSIX-compatible)
+- Operating system: Ubuntu Linux
+- Shell: /bin/bash
 - Home directory is the user's primary workspace
 - Use absolute paths when possible
 

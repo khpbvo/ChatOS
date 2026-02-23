@@ -39,9 +39,9 @@ def rules_config() -> RulesConfig:
         meta=RulesMeta(version="0.1.0", hostname="test"),
         permissions=Permissions(
             safe_patterns=["cat ", "ls ", "uptime"],
-            confirm_patterns=["pkg_add ", "rcctl "],
+            confirm_patterns=["apt install ", "systemctl "],
             forbidden_patterns=["rm -rf /", "halt", "reboot"],
-            forbidden_write_paths=["/etc/master.passwd", "/etc/chatos/rules.toml"],
+            forbidden_write_paths=["/etc/shadow", "/etc/chatos/rules.toml"],
         ),
         resources=Resources(),
     )
@@ -126,7 +126,7 @@ class TestPreToolUseHook:
         assert specific["permissionDecision"] == "deny"
 
     async def test_confirm_command_asks(self, orchestrator: Orchestrator) -> None:
-        hook_input = make_pre_hook_input("Bash", {"command": "pkg_add nginx"})
+        hook_input = make_pre_hook_input("Bash", {"command": "apt install nginx"})
         result = await orchestrator.pre_tool_use(hook_input, None, EMPTY_CTX)
 
         specific = result.get("hookSpecificOutput", {})
@@ -151,7 +151,7 @@ class TestPreToolUseHook:
         self, orchestrator: Orchestrator
     ) -> None:
         hook_input = make_pre_hook_input(
-            "Write", {"file_path": "/etc/master.passwd"}
+            "Write", {"file_path": "/etc/shadow"}
         )
         result = await orchestrator.pre_tool_use(hook_input, None, EMPTY_CTX)
 

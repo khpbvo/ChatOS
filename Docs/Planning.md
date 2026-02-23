@@ -39,7 +39,7 @@ All steps complete. 184 tests passing.
 
 - [x] **Step 6: System prompt rewrite** — Reframe from sysadmin to end-user OS companion.
   Agent must be self-aware of its capabilities (files, web, media, mail, system).
-  Informative but concise output style. Aware it runs on OpenBSD but the user doesn't
+  Informative but concise output style. Aware it runs on Ubuntu but the user doesn't
   need to know internals.
 - [x] **Step 7: Subagent markdown files** — system.md, files.md, web.md, media.md, mail.md
   in `.claude/agents/`. Each defines a specialist agent with scoped system prompt.
@@ -69,7 +69,7 @@ All steps complete. 184 tests passing.
   - **Stack:** React 19, TypeScript 5.6, Vite 6, plain CSS (single target: Chromium kiosk)
   - **Dev:** `npm run dev` (Vite HMR) with WebSocket proxy to `ws://127.0.0.1:8400`
   - **Build:** `npm run build` → `ui/dist/` static files (served by `_chatos_ui` in Step 14)
-  - **Note:** OpenBSD arm64 requires `@rollup/wasm-node` (npm override in package.json)
+  - **Note:** Production build targets Chromium kiosk on Ubuntu
   - CSP-sandboxed iframe for on-demand web browsing (BrowserPanel, stretch goal)
 - [x] **Step 14: File server** — HTTP file serving integrated into the WebSocket server
   via `process_request` hook. Serves local files from user home dir (session-token gated)
@@ -87,26 +87,26 @@ All steps complete. 184 tests passing.
     `deploy/kiosk/launch-kiosk.sh` (new), `deploy/kiosk/xinitrc` (new),
     `deploy/kiosk/reset-console.sh` (new), `tests/test_kiosk_config.py` (new)
   - 412 total tests (29 new in test_kiosk_config)
-- [x] **Step 16: rc.d scripts** — OpenBSD service scripts for chatos_agent and chatos_ui
-  - Files: `deploy/rc.d/chatos_agent` (new), `deploy/rc.d/chatos_ui` (new),
-    `deploy/rc.d/rc.conf.local.example` (new), `tests/test_rc_scripts.py` (new)
+- [x] **Step 16: systemd service units** — Ubuntu service units for chatos-agent and chatos-ui
+  - Files: `deploy/systemd/chatos-agent.service` (new), `deploy/systemd/chatos-ui.service` (new),
+    `deploy/systemd/README.md` (new), `tests/test_rc_scripts.py` (new)
   - 457 total tests (45 new in test_rc_scripts)
 
 ### Phase 4: Hardening — COMPLETE
 
-- [x] **Step 17: pledge/unveil wrappers** — Python ctypes bindings for OpenBSD pledge() and unveil()
+- [x] **Step 17: Landlock sandbox wrappers** — Python ctypes bindings for Linux Landlock LSM
   - Files: `src/sandbox.py` (new), `tests/test_sandbox.py` (new)
   - 509 total tests (52 new in test_sandbox)
   - Sandbox builder class with two-phase API (builder → apply)
-  - Real pledge/unveil integration tests via subprocess isolation
-  - No-op on non-OpenBSD platforms; 36 OpenBSD 7.8 promises validated
-- [x] **Step 18: Apply pledge/unveil** — Lock down each process
+  - Real Landlock integration tests via subprocess isolation
+  - No-op on non-Linux platforms; Landlock ABI v1+ supported
+- [x] **Step 18: Apply Landlock sandbox** — Lock down each process
   - Files: `src/sandbox_profiles.py` (new), `src/ws_server.py`, `src/cli.py`,
     `tests/test_sandbox_profiles.py` (new)
   - 546 total tests (37 new in test_sandbox_profiles)
   - Two builder functions (server + CLI) return configured Sandbox instances
   - Graceful failure: processes continue unsandboxed if apply() raises
-  - Real subprocess integration tests verify pledge/unveil on OpenBSD
+  - Real subprocess integration tests verify Landlock on Linux
 - [x] **Step 19: Watchdog logic** — Monitor for unexpected behavior
   - Files: `src/watchdog.py` (new), `src/models.py` (+3 models), `src/audit.py`,
     `src/orchestrator.py`, `tests/test_watchdog.py` (new)
@@ -114,13 +114,13 @@ All steps complete. 184 tests passing.
   - Pure synchronous state machine — no I/O, no async
   - Detects: denial cascades, forbidden repeats, error storms, runaway loops, identical call loops
   - Per-query blocking with user-message reset; session counters survive resets
-- [x] **Step 20: Installer script** — Idempotent ksh script that transforms a fresh OpenBSD into ChatOS
+- [x] **Step 20: Installer script** — Idempotent bash script that transforms a fresh Ubuntu into ChatOS
   - Files: `deploy/install.sh` (new), `tests/test_installer.py` (new)
   - 638 total tests (49 new in test_installer)
-  - POSIX ksh, `set -eu`, 17 sections: packages, users, dirs, deploy, venv, UI build,
-    ownership, config preservation, rc.d install, doas, rcctl, post-install summary
+  - Bash, `set -euo pipefail`, 17 sections: packages, users, dirs, deploy, venv, UI build,
+    ownership, config preservation, systemd unit install, sudoers, systemctl, post-install summary
   - Config files never overwritten (preserves admin customizations on upgrade)
-  - rc.d scripts always overwritten (code, not config)
+  - systemd units always overwritten (code, not config)
 
 ## Architecture Decisions
 
@@ -157,7 +157,7 @@ Python 3.12+ exclusively.
 The SDK spawns the Claude Code CLI as a subprocess. Authentication is handled
 entirely by the CLI, not the SDK. We use `claude auth login` (interactive) or
 `claude setup-token` (headless/kiosk) instead of ANTHROPIC_API_KEY. The _chatos
-user authenticates once during initial setup via `doas -u _chatos claude setup-token`.
+user authenticates once during initial setup via `sudo -u _chatos claude setup-token`.
 No env file or API key management is needed.
 
 ### AD-8: End-user OS framing, not sysadmin tool
@@ -168,8 +168,8 @@ interface. The system prompt, subagents, and UX all reflect this distinction.
 
 ### AD-9: MCP credential storage in /etc/chatos/mcp.toml
 MCP server credentials (IMAP passwords, etc.) are stored in `/etc/chatos/mcp.toml`,
-owned by `root:_chatos` with mode `640`. This follows the standard OpenBSD pattern
-for service credentials (same as smtpd, httpd, sshd). Root writes the file during
+owned by `root:_chatos` with mode `640`. This follows the standard Linux pattern
+for service credentials (same as systemd service configs). Root writes the file during
 setup, `_chatos` reads it at runtime. No env files, no vaults.
 
 ### AD-10: CSP headers for iframe sandboxing
@@ -194,7 +194,7 @@ PyPI for IMAP/SMTP). Custom in-process SDK MCP servers (chatos-files,
 chatos-media) will be added in Phase 3 for web UI rendering needs. End users
 cannot add MCP servers — only the admin (via `/etc/chatos/mcp.toml`) controls
 available capabilities. Prefer Python (PyPI) MCP servers over npm-based ones
-to avoid a Node.js dependency on OpenBSD.
+to minimize external dependencies.
 
 ### AD-13: No offline mode
 ChatOS requires an internet connection to function (Claude API access). No
@@ -241,42 +241,43 @@ production). Security: timing-safe token comparison via `secrets.compare_digest(
 path traversal prevention via `Path.resolve()` + `relative_to()`, symlink escape
 blocking, 100 MB max file size, restrictive CSP headers on file responses.
 
-### AD-20: Skip xenodm, use xinit directly
-xenodm has no auto-login feature. For a dedicated kiosk, a login screen is
-undesirable. `xinit /path/to/xinitrc -- :0 vt05` is the standard BSD kiosk
-pattern. The `launch-kiosk.sh` script replicates xenodm's `GiveConsole`
-(DRI device permissions) since xenodm won't be running.
+### AD-20: Skip display manager, use xinit directly
+A display manager login screen is undesirable for a dedicated kiosk.
+`xinit /path/to/xinitrc -- :0` is the standard Linux kiosk pattern.
+The `launch-kiosk.sh` script handles DRI device permissions directly
+since no display manager is running.
 
-### AD-21: Keep `_chatos_ui` with `/sbin/nologin`, use doas
+### AD-21: Keep `_chatos_ui` with `/usr/sbin/nologin`, use sudo
 `xinit` doesn't check the user's login shell — it runs the client script
-directly. `doas -u _chatos_ui` works regardless of shell. Keeping
-`/sbin/nologin` prevents interactive login, which is correct for a service
-account. Requires `permit nopass root as _chatos_ui` in doas.conf (Step 20).
+directly. `sudo -u _chatos_ui` works regardless of shell. Keeping
+`/usr/sbin/nologin` prevents interactive login, which is correct for a service
+account. Requires a sudoers.d entry for passwordless access (Step 20).
 
-### AD-22: Direct daemon path, no wrapper script
-Use the Python interpreter directly as `daemon` with `-m src --serve` in
-`daemon_flags`. Follows the PostgreSQL rc.d pattern on OpenBSD (essential flags
-in daemon_flags). Simpler than a wrapper script, no extra indirection.
+### AD-22: Direct ExecStart path, no wrapper script
+Use the Python interpreter directly as `ExecStart` with `-m src --serve` in
+the systemd unit. Follows the standard systemd pattern (essential flags
+in ExecStart). Simpler than a wrapper script, no extra indirection.
 
-### AD-23: No daemon_user for chatos_ui
-The chatos_ui rc.d script does NOT set `daemon_user` because `launch-kiosk.sh`
-runs as root (for DRI device `chown`) and drops privileges to `_chatos_ui`
-internally via `doas`. This was established in AD-21 (Step 15).
+### AD-23: Root ExecStart for chatos-ui
+The chatos-ui systemd unit runs as root because `launch-kiosk.sh`
+needs root for DRI device `chown` and drops privileges to `_chatos_ui`
+internally via `sudo`. This was established in AD-21 (Step 15).
 
 ### AD-24: Port check for dependency enforcement
-`chatos_ui`'s `rc_pre()` checks port 8400 via `nc -z` rather than
-`rcctl check chatos_agent`. A running process doesn't guarantee the port is
-listening. The port check confirms the server is actually ready.
+`chatos-ui`'s `ExecStartPre` checks port 8400 via `nc -z` rather than
+relying solely on systemd's `After=` ordering. A running process doesn't
+guarantee the port is listening. The port check confirms the server is
+actually ready.
 
-### AD-25: ctypes over C extension for pledge/unveil bindings
-`pledge(2)` and `unveil(2)` have trivial C signatures (`int f(char*, char*)`)
-that map cleanly to ctypes. A C extension would require a compiler on target.
-ctypes is stdlib, works with OpenBSD's `libc.so` directly, and supports
-`use_errno=True` for thread-safe errno capture.
+### AD-25: ctypes over C extension for Landlock bindings
+Landlock syscalls have simple signatures that map cleanly to ctypes.
+A C extension would require a compiler on target. ctypes is stdlib, works
+with Linux's `libc.so.6` directly, and supports `use_errno=True` for
+thread-safe errno capture.
 
-### AD-26: No-op on non-OpenBSD platforms
-The sandbox module detects the platform via `sys.platform.startswith("openbsd")`.
-On non-OpenBSD systems, all syscall wrappers are silent no-ops but state is still
+### AD-26: No-op on non-Linux platforms
+The sandbox module detects the platform via `sys.platform.startswith("linux")`.
+On non-Linux systems, all syscall wrappers are silent no-ops but state is still
 tracked. This allows identical application code on dev and prod.
 
 ### AD-27: Two-phase builder pattern for sandbox configuration
@@ -286,22 +287,22 @@ validate inputs. Phase 2 (apply): `.apply_unveils()`, `.lock_unveil()`,
 sequence in correct order. This separates validation from execution and gives
 Step 18 fine-grained control over when each syscall fires.
 
-### AD-28: Subprocess isolation for pledge/unveil integration tests
-`pledge(2)` and `unveil(2)` permanently restrict the calling process. Integration
+### AD-28: Subprocess isolation for Landlock integration tests
+Landlock rules permanently restrict the calling process. Integration
 tests that exercise real syscalls run in isolated subprocesses via
-`subprocess.run()`. The test process itself is never pledged or unveiled.
+`subprocess.run()`. The test process itself is never sandboxed.
 
 ### AD-29: Sandbox profiles as code, not config
 Profiles are Python functions in `src/sandbox_profiles.py`, not TOML. They
 depend on runtime CLI arguments (`--home-dir`, `--log-dir`) which makes TOML
 interpolation complex. Functions with keyword arguments are simpler and testable.
 
-### AD-30: Broad exec_promises for Claude CLI child
+### AD-30: Broad Landlock rules for Claude CLI child
 The Claude CLI (Node.js) subprocess IS the agent — it runs user-requested Bash
-commands. The rules engine provides the semantic permission layer; pledge/unveil
-provide the OS-level capability boundary. Dangerous promises (`settime`,
-`disklabel`, `pf`, `drm`, `vmm`) are still excluded. `prot_exec` is required
-for Node.js V8 JIT.
+commands. The rules engine provides the semantic permission layer; Landlock
+provides the OS-level filesystem boundary. Dangerous paths (system directories,
+boot partition) are excluded. systemd hardening options (NoNewPrivileges,
+ProtectSystem) provide additional isolation.
 
 ### AD-31: Graceful sandbox failure
 If `sandbox.apply()` raises, the process continues without sandboxing and logs a
@@ -310,11 +311,11 @@ initial rollout.
 
 ### AD-32: Kiosk browser sandbox out of scope
 `_chatos_ui` runs shell scripts that exec Chromium. Chromium has its own sandbox.
-Shell-level hardening would use OpenBSD's `pledge(1)` utility — a separate concern.
+Additional shell-level hardening (e.g., seccomp-bpf) is a separate concern.
 
-### AD-33: Unveil inheritance across exec
-On OpenBSD, the unveil list persists across `fork(2)` and `execve(2)`. The Claude
-CLI subprocess is restricted to the same unveiled paths as the parent Python process.
+### AD-33: Landlock inheritance across exec
+On Linux, Landlock rulesets persist across `fork(2)` and `execve(2)`. The Claude
+CLI subprocess is restricted to the same Landlock rules as the parent Python process.
 
 ### AD-34: Watchdog as pure synchronous state machine
 The watchdog has no I/O and no async. It receives events, updates counters and
@@ -337,9 +338,9 @@ Correct ownership. Config already present? Preserve it. Safe to re-run for
 upgrades — application code and rc.d scripts are always updated, config files
 are never overwritten.
 
-### AD-38: POSIX ksh script
-`#!/bin/ksh`, `set -eu`. Matches the rc.d scripts and kiosk launch scripts.
-No bashisms. Syntax-verified via `ksh -n` in the test suite.
+### AD-38: Bash installer script
+`#!/bin/bash`, `set -euo pipefail`. Matches the kiosk launch scripts.
+Syntax-verified via `bash -n` in the test suite.
 
 ### AD-39: Local repo install, not curl|sh
 The script lives in the repo and is run locally after cloning. Computes
@@ -349,11 +350,11 @@ of the installer itself.
 ### AD-40: Config file preservation
 Never overwrite existing `/etc/chatos/*` files. The `install_config` helper
 checks `[ -f "$_dst" ]` before copying. Preserves admin customizations during
-upgrades. rc.d scripts are always overwritten because they are code, not config.
+upgrades. systemd units are always overwritten because they are code, not config.
 
-### AD-41: rcctl for service management
-Uses `rcctl enable` and `rcctl set` instead of manually editing
-`/etc/rc.conf.local`. Standard OpenBSD idiom; naturally idempotent.
+### AD-41: systemctl for service management
+Uses `systemctl enable` and `systemctl daemon-reload` instead of manually
+editing init scripts. Standard Ubuntu/systemd idiom; naturally idempotent.
 
 ## Known Limitations
 

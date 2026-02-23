@@ -1,22 +1,25 @@
 """Pre-built sandbox profiles for ChatOS processes.
 
 Each builder function returns a configured Sandbox instance with the
-minimal pledge promises and unveil paths needed for its role.
+minimal filesystem access rules needed for its role.
 
 AD-29: Profiles are code (not TOML) because they depend on runtime CLI args.
-AD-30: Broad exec_promises for the Claude CLI subprocess (Node.js V8 JIT).
+AD-30: Broad access for the Claude CLI subprocess (Node.js V8 JIT).
 AD-31: Graceful failure — callers catch exceptions and continue unsandboxed.
+
+On Linux, sandbox profiles use Landlock for filesystem access control.
+The promise/exec_promise calls are kept for API compatibility but
+only the unveil rules are enforced via Landlock.
 """
 
 from pathlib import Path
 
 from .sandbox import Sandbox
 
-# -- Exec promises for the Claude CLI child process --------------------------
-# The Claude CLI (Node.js) IS the agent — it runs user-requested commands.
-# The rules engine provides semantic filtering; pledge provides OS-level caps.
-# Excluded: settime, route, wroute, disklabel, audio, video,
-#           bpf, vmm, drm, pf, mcast, dpath, tape, error
+# -- Promises (kept for API compatibility, tracked but not individually enforced) --
+# On Linux, Landlock handles filesystem restrictions.
+# systemd unit hardening (NoNewPrivileges, ProtectSystem, etc.) provides
+# additional process-level restrictions similar to pledge.
 _EXEC_PROMISES: tuple[str, ...] = (
     "stdio", "rpath", "wpath", "cpath", "tmppath",
     "inet", "dns", "unix", "proc", "exec",
@@ -37,6 +40,8 @@ def _add_common_unveils(sb: Sandbox, log_dir: str, app_dir: str) -> None:
     sb.unveil("/usr", "rx")
     sb.unveil("/bin", "rx")
     sb.unveil("/sbin", "rx")
+    sb.unveil("/lib", "rx")
+    sb.unveil("/lib64", "rx")
     sb.unveil("/dev/null", "rw")
     sb.unveil("/dev/urandom", "r")
     sb.unveil("/tmp", "rwc")

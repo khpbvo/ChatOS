@@ -1,20 +1,23 @@
 [meta]
 version = "0.1.0"
-hostname = "bsd-agent"
+hostname = "ubuntu-agent"
 
 [permissions]
 # Operations that execute without confirmation
 safe_patterns = [
     "cat ", "ls ", "find ", "grep ", "wc ", "head ", "tail ",
     "df ", "uptime", "uname ", "whoami", "date", "cal",
-    "pkg_info", "sysctl ", "ifconfig ", "netstat ",
+    "dpkg -l", "apt list", "sysctl ", "ip addr", "ip link",
+    "ifconfig ", "netstat ", "ss ",
     "ps aux", "top -b", "vmstat", "iostat",
+    "systemctl status ",
+    "journalctl ",
 ]
 
 # Operations that require user confirmation via UI
 confirm_patterns = [
-    "pkg_add ", "pkg_delete ",
-    "rcctl ", "doas ",
+    "apt install ", "apt-get install ", "apt remove ", "apt-get remove ",
+    "systemctl ", "sudo ",
     "mv ", "cp ", "chmod ", "chown ",
     "mkdir ", "rmdir ",
     "tee ", "dd ",
@@ -28,18 +31,19 @@ forbidden_patterns = [
     "chmod -R 777 /",
     "halt", "reboot", "shutdown",
     "passwd", "vipw", "usermod", "useradd", "userdel",
-    "pfctl -d",
+    "ufw disable",
+    "iptables -F",
     ">/etc/", ">> /etc/",
 ]
 
 # Paths the agent can never write to
 forbidden_write_paths = [
-    "/etc/master.passwd",
-    "/etc/doas.conf",
+    "/etc/shadow",
+    "/etc/sudoers",
     "/etc/chatos/rules.toml",
-    "/etc/pf.conf",
-    "/bsd",
-    "/bsd.rd",
+    "/etc/ufw/",
+    "/boot/vmlinuz",
+    "/boot/initrd",
 ]
 
 [resources]

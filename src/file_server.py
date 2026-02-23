@@ -29,7 +29,7 @@ from websockets.http11 import Request, Response
 # 100 MB
 MAX_FILE_SIZE = 100 * 1024 * 1024
 
-# Extensions missing from OpenBSD's mimetypes db
+# Extra MIME types that may be missing from system mimetypes db
 _EXTRA_MIME: dict[str, str] = {
     ".webp": "image/webp",
     ".ogg": "audio/ogg",

@@ -93,9 +93,8 @@ class TestChromiumFlags:
         assert "--kiosk" in flags
 
     def test_user_data_dir_not_in_flags(self) -> None:
-        """--user-data-dir is omitted; Chrome's OpenBSD unveil sandbox
-        only unveils $HOME/.config/chromium (the default profile path).
-        We set HOME instead of using --user-data-dir."""
+        """--user-data-dir is omitted; we set HOME instead so Chromium uses
+        $HOME/.config/chromium as the default profile path."""
         loader = KioskConfigLoader(FullKioskConfig())
         flags = loader.chromium_flags()
         assert not any(f.startswith("--user-data-dir") for f in flags)

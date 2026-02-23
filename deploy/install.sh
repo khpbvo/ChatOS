@@ -1,10 +1,10 @@
-#!/bin/ksh
-# install.sh — Transform a fresh OpenBSD 7.8 machine into a ChatOS kiosk.
+#!/bin/bash
+# install.sh — Transform a fresh Ubuntu machine into a ChatOS kiosk.
 #
-# Usage:  doas ksh deploy/install.sh
+# Usage:  sudo bash deploy/install.sh
 #
 # Idempotent — safe to re-run for upgrades. Existing config files in
-# /etc/chatos/ are preserved (never overwritten). rc.d scripts and
+# /etc/chatos/ are preserved (never overwritten). systemd units and
 # application code are always updated.
 
 set -eu
@@ -18,7 +18,7 @@ CHATOS_ETC="/etc/chatos"
 CHATOS_VAR="/var/chatos"
 CHATOS_USER="_chatos"
 CHATOS_UI_USER="_chatos_ui"
-PACKAGES="python%3.12 py3-pip node chromium"
+PACKAGES="python3 python3-pip python3-venv nodejs npm chromium-browser"
 OPT_PACKAGES="unclutter"
 
 # Resolve project directory from this script's location
@@ -52,7 +52,7 @@ ensure_user() {
     info "Creating group $_name"
     groupadd "$_name"
     info "Creating user $_name (home: $_home)"
-    useradd -g "$_name" -s /sbin/nologin -d "$_home" "$_name"
+    useradd -g "$_name" -s /usr/sbin/nologin -d "$_home" -M "$_name"
 }
 
 ensure_dir() {
@@ -82,18 +82,21 @@ install_config() {
 # ---------------------------------------------------------------------------
 
 if [ "$(id -u)" -ne 0 ]; then
-    die "This script must be run as root (doas ksh deploy/install.sh)"
+    die "This script must be run as root (sudo bash deploy/install.sh)"
 fi
 
 # ---------------------------------------------------------------------------
 # Section 5: Package installation
 # ---------------------------------------------------------------------------
 
+info "Updating package lists"
+apt-get update -qq
+
 info "Installing required packages"
-pkg_add -I $PACKAGES
+apt-get install -y -qq $PACKAGES
 
 for _pkg in $OPT_PACKAGES; do
-    pkg_add -I "$_pkg" || warn "Optional package $_pkg not installed (non-fatal)"
+    apt-get install -y -qq "$_pkg" || warn "Optional package $_pkg not installed (non-fatal)"
 done
 
 # ---------------------------------------------------------------------------
@@ -109,11 +112,11 @@ ensure_user "$CHATOS_UI_USER" "/var/chatos/chromium"
 # ---------------------------------------------------------------------------
 
 info "Creating directory structure"
-ensure_dir "$CHATOS_ETC"          "root:wheel"              "755"
-ensure_dir "$CHATOS_VAR"          "root:wheel"              "755"
-ensure_dir "$CHATOS_VAR/logs"     "${CHATOS_USER}:${CHATOS_USER}"     "750"
-ensure_dir "$CHATOS_VAR/run"      "${CHATOS_USER}:${CHATOS_USER}"     "750"
-ensure_dir "$CHATOS_VAR/sessions" "${CHATOS_USER}:${CHATOS_USER}"     "750"
+ensure_dir "$CHATOS_ETC"          "root:root"                           "755"
+ensure_dir "$CHATOS_VAR"          "root:root"                           "755"
+ensure_dir "$CHATOS_VAR/logs"     "${CHATOS_USER}:${CHATOS_USER}"       "750"
+ensure_dir "$CHATOS_VAR/run"      "${CHATOS_USER}:${CHATOS_USER}"       "750"
+ensure_dir "$CHATOS_VAR/sessions" "${CHATOS_USER}:${CHATOS_USER}"       "750"
 ensure_dir "$CHATOS_VAR/chromium" "${CHATOS_UI_USER}:${CHATOS_UI_USER}" "750"
 
 # ---------------------------------------------------------------------------
@@ -139,7 +142,7 @@ fi
 
 info "Setting up Python virtual environment"
 if [ ! -d "${CHATOS_APP}/venv" ]; then
-    python3.12 -m venv "${CHATOS_APP}/venv"
+    python3 -m venv "${CHATOS_APP}/venv"
 fi
 
 info "Installing Python dependencies"
@@ -171,7 +174,7 @@ chown -R "${CHATOS_USER}:${CHATOS_USER}" "$CHATOS_APP"
 info "Installing configuration files"
 install_config "${CHATOS_APP}/etc/chatos/rules.toml"  "${CHATOS_ETC}/rules.toml"  "root:${CHATOS_USER}" "640"
 install_config "${CHATOS_APP}/etc/chatos/agents.toml" "${CHATOS_ETC}/agents.toml" "root:${CHATOS_USER}" "640"
-install_config "${CHATOS_APP}/etc/chatos/kiosk.conf"  "${CHATOS_ETC}/kiosk.conf"  "root:wheel"          "644"
+install_config "${CHATOS_APP}/etc/chatos/kiosk.conf"  "${CHATOS_ETC}/kiosk.conf"  "root:root"           "644"
 
 # Env file for API credentials (read by the Python app at startup)
 if [ ! -f "${CHATOS_ETC}/env" ]; then
@@ -189,23 +192,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Section 13: rc.d script installation (always overwrite — code, not config)
+# Section 13: systemd unit installation (always overwrite — code, not config)
 # ---------------------------------------------------------------------------
 
-info "Installing rc.d scripts"
-install -o root -g wheel -m 755 "${CHATOS_APP}/deploy/rc.d/chatos_agent" /etc/rc.d/chatos_agent
-install -o root -g wheel -m 755 "${CHATOS_APP}/deploy/rc.d/chatos_ui"    /etc/rc.d/chatos_ui
+info "Installing systemd service units"
+install -o root -g root -m 644 "${CHATOS_APP}/deploy/systemd/chatos-agent.service" /etc/systemd/system/chatos-agent.service
+install -o root -g root -m 644 "${CHATOS_APP}/deploy/systemd/chatos-ui.service"    /etc/systemd/system/chatos-ui.service
+
+systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
-# Section 14: doas.conf update
+# Section 14: sudoers.d entry for _chatos_ui
 # ---------------------------------------------------------------------------
 
-_doas_line="permit nopass root as _chatos_ui"
-if grep -qF "$_doas_line" /etc/doas.conf 2>/dev/null; then
-    info "doas.conf already configured"
+_sudoers_file="/etc/sudoers.d/chatos-ui"
+_sudoers_line="_chatos_ui ALL=(ALL) NOPASSWD: ALL"
+if [ -f "$_sudoers_file" ]; then
+    info "sudoers entry already configured"
 else
-    info "Adding _chatos_ui rule to /etc/doas.conf"
-    echo "$_doas_line" >> /etc/doas.conf
+    info "Adding _chatos_ui sudoers entry"
+    echo "$_sudoers_line" > "$_sudoers_file"
+    chmod 440 "$_sudoers_file"
 fi
 
 # ---------------------------------------------------------------------------
@@ -213,10 +220,8 @@ fi
 # ---------------------------------------------------------------------------
 
 info "Enabling services"
-rcctl enable chatos_agent
-rcctl enable chatos_ui
-rcctl set chatos_agent timeout 60
-rcctl set chatos_ui timeout 60
+systemctl enable chatos-agent.service
+systemctl enable chatos-ui.service
 
 # ---------------------------------------------------------------------------
 # Section 16: Deploy script permissions
@@ -226,8 +231,6 @@ info "Setting deploy script permissions"
 chmod +x "${CHATOS_APP}/deploy/kiosk/launch-kiosk.sh"
 chmod +x "${CHATOS_APP}/deploy/kiosk/xinitrc"
 chmod +x "${CHATOS_APP}/deploy/kiosk/reset-console.sh"
-chmod +x "${CHATOS_APP}/deploy/rc.d/chatos_agent"
-chmod +x "${CHATOS_APP}/deploy/rc.d/chatos_ui"
 
 # ---------------------------------------------------------------------------
 # Section 17: Post-install summary
@@ -253,16 +256,17 @@ Next steps:
      chmod 640 /etc/chatos/mcp.toml
 
   3. Start services:
-     rcctl start chatos_agent
-     rcctl start chatos_ui
+     sudo systemctl start chatos-agent
+     sudo systemctl start chatos-ui
 
   4. Check logs:
+     journalctl -u chatos-agent -f
      tail -f /var/chatos/logs/kiosk.log
      ls /var/chatos/logs/audit-*.jsonl
 
   5. Stop services:
-     rcctl stop chatos_ui
-     rcctl stop chatos_agent
+     sudo systemctl stop chatos-ui
+     sudo systemctl stop chatos-agent
 
 ============================================================
 EOF

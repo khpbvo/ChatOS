@@ -206,7 +206,7 @@ class TestMimeType:
         assert _guess_mime(Path("image.png")) == "image/png"
 
     def test_webp_fallback(self) -> None:
-        # webp may not be in OpenBSD mimetypes
+        # webp may not be in system mimetypes
         mime = _guess_mime(Path("photo.webp"))
         assert mime == "image/webp"
 

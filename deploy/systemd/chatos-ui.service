@@ -1,0 +1,17 @@
+[Unit]
+Description=ChatOS Kiosk Browser UI
+After=chatos-agent.service
+Requires=chatos-agent.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c 'timeout=30; elapsed=0; while [ "$elapsed" -lt "$timeout" ]; do nc -z 127.0.0.1 8400 2>/dev/null && exit 0; sleep 1; elapsed=$((elapsed + 1)); done; echo "chatos-agent not listening on port 8400 after ${timeout}s"; exit 1'
+ExecStart=/usr/local/share/chatos/deploy/kiosk/launch-kiosk.sh
+ExecStopPost=/usr/local/share/chatos/deploy/kiosk/reset-console.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
